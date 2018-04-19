@@ -19,6 +19,7 @@ import           Universum
 
 import           Control.DeepSeq (NFData)
 import           Control.Lens (makeLensesFor)
+import           Control.DeepSeq (NFData)
 import           Data.Default (Default (def))
 import           Data.Semigroup (Semigroup)
 
