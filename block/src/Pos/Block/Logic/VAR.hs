@@ -178,7 +178,7 @@ verifyAndApplyBlocks pm ctx rollback blocks = runExceptT $ do
         -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] Blund)
     applyAMAP e (OldestFirst []) _      True                   = throwError e
     applyAMAP _ (OldestFirst []) blunds False                  = (,blunds) <$> lift GS.getTip
-    applyAMAP e (OldestFirst (block:xs)) blunds nothingApplied = do
+    applyAMAP e (OldestFirst (block:xs)) blunds nothingApplied =
         lift (verifyBlocksPrefix pm ctx (one block)) >>= \case
             Left (ApplyBlocksVerifyFailure -> e') ->
                 applyAMAP e' (OldestFirst []) blunds nothingApplied
