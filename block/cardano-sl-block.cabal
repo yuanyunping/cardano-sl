@@ -39,6 +39,7 @@ library
                         -- Exposed for tests
                         Pos.Block.Logic.VAR
                         Pos.Block.Logic.Integrity
+                        Pos.Block.Logic.Types
 
                         Pos.Block.Worker
 
@@ -81,6 +82,7 @@ library
                       , formatting
                       , lens
                       , log-warper
+                      , mmorph
                       , mtl
                       , random
                       , reflection
