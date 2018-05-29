@@ -51,8 +51,8 @@ mapListener'
           -> N.ConversationActions snd rcv
           -> N.ConversationActions snd rcv)
     -> (forall t. IO t -> IO t) -> Listener -> Listener
-mapListener' caMapper mapper (N.Listener f) =
-    N.Listener $ \d nId -> mapper . f d nId . caMapper nId
+mapListener' caMapper mapper (N.Listener serSnd serRcv f) =
+    N.Listener serSnd serRcv $ \d nId -> mapper . f d nId . caMapper nId
 
 makeEnqueueMsg
     :: Trace IO (Severity, Text)
@@ -79,7 +79,7 @@ alternativeConversations logTrace nid ourVerInfo theirVerInfo convs
     | otherwise =
         let alts = map (checkingOutSpecs' nid (vIInHandlers theirVerInfo)) convs
         in  case sequence alts of
-                Left (Conversation l) -> N.Conversation $ \conv -> do
+                Left (Conversation serSnd serRcv l) -> N.Conversation serSnd serRcv $ \conv -> do
                     mapM_ logOSNR alts
                     l conv
                 Right errs -> throwErrs errs (NE.head convs)
@@ -93,7 +93,7 @@ alternativeConversations logTrace nid ourVerInfo theirVerInfo convs
         => NonEmpty e
         -> Conversation x
         -> N.Conversation PackingType x
-    throwErrs errs (Conversation l) = N.Conversation $ \conv -> do
+    throwErrs errs (Conversation serSnd serRcv l) = N.Conversation serSnd serRcv $ \conv -> do
         let _ = l conv
         traceWith logTrace (Warning, sformat ("Failed to choose appropriate conversation: "%listJson) errs)
         throwIO $ NE.head errs
@@ -104,7 +104,7 @@ alternativeConversations logTrace nid ourVerInfo theirVerInfo convs
     logOSNR (Right e@(OutSpecNotReported _ _)) = traceWith logTrace (Warning, sformat build e)
     logOSNR _                                  = pure ()
 
-    checkingOutSpecs' nodeId peerInSpecs conv@(Conversation h) =
+    checkingOutSpecs' nodeId peerInSpecs conv@(Conversation _ _ h) =
         checkingOutSpecs (sndMsgCode, ConvHandler rcvMsgCode) nodeId peerInSpecs conv
       where
         sndMsgCode = messageCode . sndProxy $ fstArg h

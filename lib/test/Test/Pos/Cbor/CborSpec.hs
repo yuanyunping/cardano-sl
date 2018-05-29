@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes       #-}
+{-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE DeriveGeneric             #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs                     #-}

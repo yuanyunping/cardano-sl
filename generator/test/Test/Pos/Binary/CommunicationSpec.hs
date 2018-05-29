@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds        #-}
+{-# LANGUAGE TypeApplications #-}
 module Test.Pos.Binary.CommunicationSpec
     ( spec )
     where
@@ -9,7 +11,8 @@ import           Test.Hspec (Spec, describe)
 import           Test.Hspec.QuickCheck (prop)
 import           Test.QuickCheck.Monadic (assert)
 
-import           Pos.Binary.Class (decodeFull, serialize')
+import           Pos.Binary.Class (Bi (..), DecoderAttrKind (..), decodeFull,
+                     serialize')
 import           Pos.Binary.Communication (serializeMsgSerializedBlock)
 import           Pos.Block.Network.Types (MsgBlock (..),
                      MsgSerializedBlock (..))
@@ -36,7 +39,7 @@ serializeMsgSerializedBlockSpec = do
     prop descNoBlock $ blockPropertyTestable $ do
         let msg :: MsgSerializedBlock
             msg = MsgNoSerializedBlock "no block"
-            msg' :: MsgBlock
+            msg' :: MsgBlock 'AttrNone
             msg' = MsgNoBlock "no block"
         assert $ serializeMsgSerializedBlock msg == serialize' msg'
     where
@@ -53,13 +56,13 @@ deserializeSerilizedMsgSerializedBlockSpec = do
     prop desc $ blockPropertyTestable $ do
         (block, _) <- bpGenBlock dummyProtocolMagic (EnableTxPayload True) (InplaceDB True)
         let sb = Serialized $ serialize' block
-        let msg :: Either Text MsgBlock
-            msg = decodeFull . BSL.fromStrict . serializeMsgSerializedBlock $ MsgSerializedBlock sb
+        let msg :: Either Text (MsgBlock 'AttrNone)
+            msg = decodeFull decode label . BSL.fromStrict . serializeMsgSerializedBlock $ MsgSerializedBlock sb
         assert $ msg == Right (MsgBlock block)
     prop descNoBlock $ blockPropertyTestable $ do
         let msg :: MsgSerializedBlock
             msg = MsgNoSerializedBlock "no block"
-        assert $ (decodeFull . BSL.fromStrict . serializeMsgSerializedBlock $ msg) == Right (MsgNoBlock "no block")
+        assert $ (decodeFull @(MsgBlock 'AttrNone) decode label . BSL.fromStrict . serializeMsgSerializedBlock $ msg) == Right (MsgNoBlock "no block")
     where
     desc = "deserialization of a serialized MsgSerializedBlock message should give back corresponding MsgBlock"
     descNoBlock = "deserialization of a serialized MsgNoSerializedBlock message should give back corresponding MsgNoBlock"

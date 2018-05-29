@@ -44,7 +44,7 @@ import           Pos.Util.Some (Some (Some))
 verifyBlockHeader
     :: MonadError Text m
     => ProtocolMagic
-    -> BlockHeader
+    -> BlockHeader attr
     -> m ()
 verifyBlockHeader _ (BlockHeaderGenesis _) = pure ()
 verifyBlockHeader pm (BlockHeaderMain bhm) = verifyMainBlockHeader pm bhm
@@ -55,26 +55,25 @@ verifyBlock
        , HasProtocolConstants
        )
     => ProtocolMagic
-    -> Block
+    -> Block attr
     -> m ()
 verifyBlock pm = either verifyGenesisBlock (verifyMainBlock pm)
 
 -- | To verify a genesis block we only have to check the body proof.
 verifyGenesisBlock
     :: ( MonadError Text m )
-    => GenericBlock GenesisBlockchain
+    => GenericBlock GenesisBlockchain attr
     -> m ()
 verifyGenesisBlock UnsafeGenericBlock {..} =
     checkBodyProof @GenesisBlockchain _gbBody (_gbhBodyProof _gbHeader)
 
 verifyMainBlock
     :: ( MonadError Text m
-       , Bi BlockHeader
        , Bi MainProof
        , HasProtocolConstants
        )
     => ProtocolMagic
-    -> GenericBlock MainBlockchain
+    -> GenericBlock MainBlockchain attr
     -> m ()
 verifyMainBlock pm block@UnsafeGenericBlock {..} = do
     verifyMainBlockHeader pm _gbHeader
@@ -113,7 +112,7 @@ verifyMainBody pm MainBody {..} = do
 verifyMainBlockHeader
     :: MonadError Text m
     => ProtocolMagic
-    -> GenericBlockHeader MainBlockchain
+    -> GenericBlockHeader MainBlockchain attr
     -> m ()
 verifyMainBlockHeader pm UnsafeGenericBlockHeader {..} = do
     -- Previous header hash is always valid.

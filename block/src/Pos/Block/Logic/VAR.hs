@@ -76,13 +76,13 @@ import           Pos.Util.Util (HasLens (..))
 -- 3.  Ensure that the number of undos from @txp@ and @dlg@ is the same.
 -- 4.  Return all undos.
 verifyBlocksPrefix
-    :: forall ctx m.
+    :: forall ctx attr m.
        ( HasTxpConfiguration
        , MonadBlockVerify ctx m
        )
     => ProtocolMagic
     -> VerifyBlocksContext
-    -> OldestFirst NE Block
+    -> OldestFirst NE (Block attr)
     -> m (Either VerifyBlocksException (OldestFirst NE Undo, PollModifier))
 verifyBlocksPrefix pm ctx blocks = runExceptT $ do
     -- This check (about tip) is here just in case, we actually check
@@ -133,8 +133,11 @@ type BlockLrcMode ctx m = (MonadBlockApply ctx m, LrcModeFull ctx m)
 -- block cannot be applied, it will throw an exception, otherwise it will
 -- return the header hash of the new tip. It's up to the caller to log a
 -- warning that partial application has occurred.
+--
+-- The function is polymorphic in `attr :: DecoderAttr` only because we
+-- verify blocks which we generate by ourselves to check byte size limits.
 verifyAndApplyBlocks
-    :: forall ctx m.
+    :: forall attr ctx m.
        ( BlockLrcMode ctx m
        , MonadMempoolNormalization ctx m
        , HasMisbehaviorMetrics ctx
@@ -142,8 +145,8 @@ verifyAndApplyBlocks
     => ProtocolMagic
     -> VerifyBlocksContext
     -> Bool
-    -> OldestFirst NE Block
-    -> m (Either ApplyBlocksException (HeaderHash, NewestFirst [] Blund))
+    -> OldestFirst NE (Block attr)
+    -> m (Either ApplyBlocksException (HeaderHash, NewestFirst [] (Blund attr)))
 verifyAndApplyBlocks pm ctx rollback blocks = runExceptT $ do
     tip <- lift GS.getTip
     let assumedTip = blocks ^. _Wrapped . _neHead . prevBlockL
@@ -160,8 +163,8 @@ verifyAndApplyBlocks pm ctx rollback blocks = runExceptT $ do
     -- * mmgm → mm, gm
     -- * ggmmg → g, gmmg
     spanEpoch ::
-           OldestFirst NE Block
-        -> (OldestFirst NE Block, OldestFirst [] Block)
+           OldestFirst NE (Block attr)
+        -> (OldestFirst NE (Block attr), OldestFirst [] (Block attr))
     spanEpoch (OldestFirst (b@(Left _):|xs)) = (OldestFirst $ b:|[], OldestFirst xs)
     spanEpoch x                              = spanTail x
     spanTail = over _1 OldestFirst . over _2 OldestFirst .  -- wrap both results
@@ -172,10 +175,10 @@ verifyAndApplyBlocks pm ctx rollback blocks = runExceptT $ do
     -- return tip. Fail otherwise.
     applyAMAP
         :: ApplyBlocksException
-        -> OldestFirst [] Block
-        -> NewestFirst [] Blund  -- an accumulator for `Blund`s
+        -> OldestFirst [] (Block attr)
+        -> NewestFirst [] (Blund attr)  -- an accumulator for `Blund`s
         -> Bool
-        -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] Blund)
+        -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] (Blund attr))
     applyAMAP e (OldestFirst []) _      True                   = throwError e
     applyAMAP _ (OldestFirst []) blunds False                  = (,blunds) <$> lift GS.getTip
     applyAMAP e (OldestFirst (block:xs)) blunds nothingApplied =
@@ -195,8 +198,8 @@ verifyAndApplyBlocks pm ctx rollback blocks = runExceptT $ do
     -- Rollbacks and returns an error
     failWithRollback
         :: ApplyBlocksException
-        -> [NewestFirst NE Blund]
-        -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] Blund)
+        -> [NewestFirst NE (Blund attr)]
+        -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] (Blund attr))
     failWithRollback e toRollback = do
         logDebug "verifyAndapply failed, rolling back"
         lift $ mapM_ (rollbackBlocks pm) toRollback
@@ -208,9 +211,9 @@ verifyAndApplyBlocks pm ctx rollback blocks = runExceptT $ do
     -- be rolled back first. This function also tries to apply as much as
     -- possible if the @rollback@ flag is on.
     rollingVerifyAndApply
-        :: [NewestFirst NE Blund]
-        -> (OldestFirst NE Block, OldestFirst [] Block)
-        -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] Blund)
+        :: [NewestFirst NE (Blund attr)]
+        -> (OldestFirst NE (Block attr), OldestFirst [] (Block attr))
+        -> ExceptT ApplyBlocksException m (HeaderHash, NewestFirst [] (Blund attr))
     rollingVerifyAndApply blunds (prefix, suffix) = do
         let prefixHead = prefix ^. _Wrapped . _neHead
         when (isLeft prefixHead) $ do
@@ -255,14 +258,14 @@ verifyAndApplyBlocks pm ctx rollback blocks = runExceptT $ do
 -- and ensured that chain is based on our tip. Blocks will be applied
 -- per-epoch, calculating lrc when needed if flag is set.
 applyBlocks
-    :: forall ctx m
+    :: forall ctx attr m
      . ( BlockLrcMode ctx m
        , HasMisbehaviorMetrics ctx
        )
     => ProtocolMagic
     -> Bool
     -> Maybe PollModifier
-    -> OldestFirst NE Blund
+    -> OldestFirst NE (Blund attr)
     -> m ()
 applyBlocks pm calculateLrc pModifier blunds = do
     when (isLeft prefixHead && calculateLrc) $
@@ -288,7 +291,7 @@ applyBlocks pm calculateLrc pModifier blunds = do
 
 -- | Rollbacks blocks. Head must be the current tip.
 rollbackBlocks
-    :: (MonadBlockApply ctx m) => ProtocolMagic -> NewestFirst NE Blund -> m ()
+    :: (MonadBlockApply ctx m) => ProtocolMagic -> NewestFirst NE (Blund attr) -> m ()
 rollbackBlocks pm blunds = do
     tip <- GS.getTip
     let firstToRollback = blunds ^. _Wrapped . _neHead . _1 . headerHashG
@@ -298,14 +301,14 @@ rollbackBlocks pm blunds = do
 
 -- | Rollbacks some blocks and then applies some blocks.
 applyWithRollback
-    :: forall ctx m
-     . ( BlockLrcMode ctx m
+    :: forall attr ctx m.
+       ( BlockLrcMode ctx m
        , MonadMempoolNormalization ctx m
        , HasMisbehaviorMetrics ctx
        )
     => ProtocolMagic
-    -> NewestFirst NE Blund        -- ^ Blocks to rollbck
-    -> OldestFirst NE Block        -- ^ Blocks to apply
+    -> NewestFirst NE (Blund attr)  -- ^ Blocks to rollbck
+    -> OldestFirst NE (Block attr)   -- ^ Blocks to apply
     -> m (Either ApplyBlocksException HeaderHash)
 applyWithRollback pm toRollback toApply = runExceptT $ do
     tip <- lift GS.getTip

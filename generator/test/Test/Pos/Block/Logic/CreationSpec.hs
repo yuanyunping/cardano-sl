@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 -- | Specification of 'Pos.Block.Logic.Creation' module.
 
 module Test.Pos.Block.Logic.CreationSpec
@@ -17,6 +18,7 @@ import           Test.QuickCheck (Gen, Property, Testable, arbitrary, choose,
 
 import           Pos.Arbitrary.Ssc (commitmentMapEpochGen,
                      vssCertificateEpochGen)
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import           Pos.Binary.Class (biSize)
 import           Pos.Block.Logic (RawPayload (..), createMainBlockPure)
 import qualified Pos.Communication ()
@@ -117,7 +119,7 @@ spec = withDefConfiguration $ \_ -> withDefUpdateConfiguration $
 
     emptyBlk
         :: (HasConfiguration, HasUpdateConfiguration, Testable p)
-        => (Either Text MainBlock -> p)
+        => (Either Text (MainBlock 'AttrNone) -> p)
         -> Property
     emptyBlk foo =
         forAll arbitrary $ \(prevHeader, sk, slotId) ->
@@ -130,12 +132,12 @@ spec = withDefConfiguration $ \_ -> withDefUpdateConfiguration $
     noSscBlock
         :: (HasConfiguration, HasUpdateConfiguration)
         => Byte
-        -> BlockHeader
+        -> (BlockHeader 'AttrNone)
         -> [TxAux]
         -> DlgPayload
         -> UpdatePayload
         -> SecretKey
-        -> Either Text MainBlock
+        -> Either Text (MainBlock 'AttrNone)
     noSscBlock limit prevHeader txs proxyCerts updatePayload sk =
         let neutralSId = SlotId 0
                 (unsafeMkLocalSlotIndexExplicit (pcEpochSlots protocolConstants) $ fromIntegral $ blkSecurityParam * 2)
@@ -145,7 +147,7 @@ spec = withDefConfiguration $ \_ -> withDefUpdateConfiguration $
     producePureBlock
         :: (HasConfiguration, HasUpdateConfiguration)
         => Byte
-        -> BlockHeader
+        -> (BlockHeader 'AttrNone)
         -> [TxAux]
         -> ProxySKBlockInfo
         -> SlotId
@@ -153,7 +155,7 @@ spec = withDefConfiguration $ \_ -> withDefUpdateConfiguration $
         -> SscPayload
         -> UpdatePayload
         -> SecretKey
-        -> Either Text MainBlock
+        -> Either Text (MainBlock 'AttrNone)
     producePureBlock limit prev txs psk slot dlgPay sscPay usPay sk =
         createMainBlockPure dummyProtocolMagic limit prev psk slot sk $
         RawPayload txs sscPay dlgPay usPay

@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP                 #-}
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
@@ -32,14 +33,15 @@ import qualified System.Metrics as Monitoring
 
 import           System.Random (newStdGen)
 
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import           Pos.Block.Network (MsgBlock, MsgGetBlocks, MsgGetHeaders,
                      MsgHeaders, MsgStream, MsgStreamBlock)
 import           Pos.Communication (EnqueueMsg, HandlerSpecs, InSpecs (..),
                      InvOrDataTK, Listener, MkListeners (..), Msg,
                      MsgSubscribe, MsgSubscribe1, NodeId, OutSpecs (..),
-                     PackingType, PeerData, SendActions, VerInfo (..),
-                     bipPacking, convH, createOutSpecs, makeEnqueueMsg,
-                     makeSendActions, toOutSpecs)
+                     PackingType, PeerData, SendActions, VerInfo (..), biSerIO,
+                     convH, createOutSpecs, makeEnqueueMsg, makeSendActions,
+                     toOutSpecs)
 import           Pos.Core (BlockVersion, BlockVersionData (..), HeaderHash,
                      ProtocolConstants (..), ProxySKHeavy, StakeholderId)
 import           Pos.Core.Block (Block, BlockHeader, MainBlockHeader)
@@ -268,7 +270,7 @@ diffusionLayerFullExposeInternals fdconf
         -- requestTipOuts from Pos.Block.Network.
         securityWorkerOutSpecs = toOutSpecs
             [ convH (Proxy :: Proxy MsgGetHeaders)
-                    (Proxy :: Proxy MsgHeaders)
+                    (Proxy :: Proxy (MsgHeaders 'AttrExtRep))
             ]
 
         -- announceBlockHeaderOuts from blkCreatorWorker
@@ -279,17 +281,17 @@ diffusionLayerFullExposeInternals fdconf
             [ announceBlockHeaderOuts
             , announceBlockHeaderOuts
             , announceBlockHeaderOuts <> toOutSpecs [ convH (Proxy :: Proxy MsgGetBlocks)
-                                                            (Proxy :: Proxy MsgBlock)
+                                                            (Proxy :: Proxy (MsgBlock 'AttrExtRep))
                                                     ]
             , streamBlockHeaderOuts
             ]
 
-        announceBlockHeaderOuts = toOutSpecs [ convH (Proxy :: Proxy MsgHeaders)
+        announceBlockHeaderOuts = toOutSpecs [ convH (Proxy :: Proxy (MsgHeaders 'AttrNone))
                                                      (Proxy :: Proxy MsgGetHeaders)
                                              ]
 
         streamBlockHeaderOuts = toOutSpecs [ convH (Proxy :: Proxy MsgStream)
-                                                   (Proxy :: Proxy MsgStreamBlock)
+                                                   (Proxy :: Proxy (MsgStreamBlock 'AttrExtRep))
                                            ]
 
         -- Plainly mempty from the definition of allWorkers.
@@ -347,21 +349,21 @@ diffusionLayerFullExposeInternals fdconf
         getBlocks :: NodeId
                   -> HeaderHash
                   -> [HeaderHash]
-                  -> IO (OldestFirst [] Block)
+                  -> IO (OldestFirst [] (Block 'AttrExtRep))
         getBlocks = Diffusion.Block.getBlocks logTrace logic recoveryHeadersMessage enqueue
 
-        requestTip :: IO (Map NodeId (IO BlockHeader))
+        requestTip :: IO (Map NodeId (IO (BlockHeader 'AttrExtRep)))
         requestTip = Diffusion.Block.requestTip logTrace logic enqueue recoveryHeadersMessage
 
         streamBlocks :: forall t .
                         NodeId
                      -> HeaderHash
                      -> [HeaderHash]
-                     -> ([Block] -> IO t)
+                     -> ([Block 'AttrExtRep] -> IO t)
                      -> IO (Maybe t)
         streamBlocks = Diffusion.Block.streamBlocks logTrace diffusionHealth logic streamWindow enqueue
 
-        announceBlockHeader :: MainBlockHeader -> IO ()
+        announceBlockHeader :: MainBlockHeader 'AttrNone -> IO ()
         announceBlockHeader = void . Diffusion.Block.announceBlockHeader logTrace logic protocolConstants recoveryHeadersMessage enqueue
 
         sendTx :: TxAux -> IO Bool
@@ -496,7 +498,7 @@ timeWarpNode
     -> IO t
 timeWarpNode logTrace transport convEstablishTimeout ourVerInfo listeners k = do
     stdGen <- newStdGen
-    node logTrace mkTransport mkReceiveDelay mkConnectDelay stdGen bipPacking ourVerInfo nodeEnv $ \theNode ->
+    node logTrace mkTransport mkReceiveDelay mkConnectDelay stdGen biSerIO biSerIO ourVerInfo nodeEnv $ \theNode ->
         NodeAction listeners $ k theNode
   where
     mkTransport = simpleNodeEndPoint transport

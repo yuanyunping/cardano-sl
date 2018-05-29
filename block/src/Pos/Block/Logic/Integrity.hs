@@ -1,4 +1,7 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE KindSignatures      #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 -- | Verification of headers and blocks, also chain integrity
 -- checks. Almost pure (requires leaders to be explicitly passed).
@@ -7,6 +10,7 @@ module Pos.Block.Logic.Integrity
        (
          -- * Header
          VerifyHeaderParams (..)
+       , verifyHeaderParams
        , verifyHeader
        , verifyHeaders
 
@@ -20,9 +24,11 @@ module Pos.Block.Logic.Integrity
 import           Universum
 
 import           Control.Lens (ix)
+import           Control.DeepSeq (NFData (..))
 import           Formatting (build, int, sformat, (%))
 import           Serokell.Data.Memory.Units (Byte, memory)
 import           Serokell.Util (VerificationRes (..), verifyGeneric)
+import           Unsafe.Coerce (unsafeCoerce)
 
 import qualified Pos.Binary.Class as Bi
 import qualified Pos.Block.BHelpers as BHelpers
@@ -32,10 +38,11 @@ import           Pos.Core (BlockVersionData (..), ChainDifficulty, EpochOrSlot,
                      HasProtocolConstants, HeaderHash, SlotId (..),
                      SlotLeaders, addressHash, gbExtra, gbhExtra, getSlotIndex,
                      headerSlotL, prevBlockL)
-import           Pos.Core.Block (Block, BlockHeader (..),
+import           Pos.Core.Block (Block, BlockHeader (..), blockDecoderAttr,
                      blockHeaderProtocolMagic, gebAttributes, gehAttributes,
-                     genBlockLeaders, getBlockHeader, mainHeaderLeaderKey,
-                     mebAttributes, mehAttributes)
+                     genBlockLeaders, genericBlockHeaderDecoderAttr,
+                     getBlockHeader, mainHeaderLeaderKey, mebAttributes,
+                     mehAttributes)
 import           Pos.Core.Chrono (NewestFirst (..), OldestFirst)
 import           Pos.Core.Slotting (EpochIndex)
 import           Pos.Crypto (ProtocolMagic (getProtocolMagic))
@@ -46,13 +53,13 @@ import           Pos.Data.Attributes (areAttributesKnown)
 ----------------------------------------------------------------------------
 
 -- Difficulty of the BlockHeader. 0 for genesis block, 1 for main block.
-headerDifficultyIncrement :: BlockHeader -> ChainDifficulty
+headerDifficultyIncrement :: BlockHeader attr -> ChainDifficulty
 headerDifficultyIncrement (BlockHeaderGenesis _) = 0
 headerDifficultyIncrement (BlockHeaderMain _)    = 1
 
 -- | Extra data which may be used by verifyHeader function to do more checks.
 data VerifyHeaderParams = VerifyHeaderParams
-    { vhpPrevHeader      :: !(Maybe BlockHeader)
+    { vhpPrevHeader      :: !(forall (attr :: Bi.DecoderAttrKind). (Maybe (BlockHeader attr)))
       -- ^ Nothing means that block is unknown, not genesis.
     , vhpCurrentSlot     :: !(Maybe SlotId)
       -- ^ Current slot is used to check whether header is not from future.
@@ -62,9 +69,30 @@ data VerifyHeaderParams = VerifyHeaderParams
       -- ^ Maximal allowed header size. It's applied to 'BlockHeader'.
     , vhpVerifyNoUnknown :: !Bool
       -- ^ Check that header has no unknown attributes.
-    } deriving (Eq, Show, Generic)
+    }
 
-instance NFData VerifyHeaderParams
+deriving instance Eq VerifyHeaderParams
+deriving instance Show VerifyHeaderParams
+
+instance NFData VerifyHeaderParams where
+    rnf (VerifyHeaderParams {..})
+        =  rnf vhpPrevHeader
+        <> rnf vhpCurrentSlot
+        <> rnf vhpLeaders
+        <> rnf vhpMaxSize
+        <> rnf vhpVerifyNoUnknown
+
+verifyHeaderParams
+    :: Maybe (BlockHeader attr)
+    -> Maybe SlotId
+    -> Maybe SlotLeaders
+    -> Maybe Byte
+    -> Bool
+    -> VerifyHeaderParams
+verifyHeaderParams header vhpCurrentSlot vhpLeaders vhpMaxSize vhpVerifyNoUnknown = VerifyHeaderParams {..}
+    where
+        vhpPrevHeader :: forall attr'. Maybe (BlockHeader attr')
+        vhpPrevHeader = unsafeCoerce header
 
 verifyFromEither :: Text -> Either Text b -> VerificationRes
 verifyFromEither txt (Left reason) = verifyGeneric [(False, txt <> ": " <> reason)]
@@ -89,7 +117,10 @@ verifyFromEither txt (Right _)     = verifyGeneric [(True, txt)]
 -- 4.  Header size does not exceed `bvdMaxHeaderSize`.
 -- 5.  (Optional) Header has no unknown attributes.
 verifyHeader
-    :: ProtocolMagic -> VerifyHeaderParams -> BlockHeader -> VerificationRes
+    :: ProtocolMagic
+    -> VerifyHeaderParams
+    -> BlockHeader (attr :: Bi.DecoderAttrKind)
+    -> VerificationRes
 verifyHeader pm VerifyHeaderParams {..} h =
        verifyFromEither "internal header consistency" (BHelpers.verifyBlockHeader pm h)
     <> verifyGeneric checks
@@ -142,21 +173,27 @@ verifyHeader pm VerifyHeaderParams {..} h =
     checkSize =
         case vhpMaxSize of
             Nothing -> mempty
-            -- FIXME do not use 'biSize'! It's expensive.
             Just maxSize ->
-                [ ( Bi.biSize h <= maxSize
-                  , sformat
-                        ("header's size exceeds limit ("%memory%" > "%memory%")")
-                        (Bi.biSize h)
-                        maxSize)
-                ]
+                let size = case genericBlockHeaderDecoderAttr h of
+                        -- Note: encoded `BlockHeader` is two bytes larger than
+                        -- `GenericBlockHeader`, see `Bi BlockHeader` instance.
+                        attr@Bi.DecoderAttrExtRep{} -> 2 + Bi.decoderAttrSize attr
+                        Bi.DecoderAttrNone          -> Bi.biSize h
+                        Bi.DecoderAttrOffsets{}     -> Bi.biSize $ Bi.forgetExtRep h
+                in  [ ( size  <= maxSize
+                      , sformat
+                            ("header's size exceeds limit ("%memory%" > "%memory%")")
+                            size
+                            maxSize
+                      )
+                    ]
 
     -- CHECK: Performs checks related to the previous header:
     --
     --   * Difficulty is correct.
     --   * Hash is correct.
     --   * Epoch/slot are consistent.
-    relatedToPrevHeader :: BlockHeader -> [(Bool, Text)]
+    relatedToPrevHeader :: BlockHeader 'Bi.AttrExtRep -> [(Bool, Text)]
     relatedToPrevHeader prevHeader =
         [ checkDifficulty
               (prevHeader ^. difficultyL + headerDifficultyIncrement h)
@@ -210,7 +247,7 @@ verifyHeader pm VerifyHeaderParams {..} h =
 verifyHeaders ::
        ProtocolMagic
     -> Maybe SlotLeaders
-    -> NewestFirst [] BlockHeader
+    -> NewestFirst [] (BlockHeader 'Bi.AttrExtRep)
     -> VerificationRes
 verifyHeaders _ _ (NewestFirst []) = mempty
 verifyHeaders pm leaders (NewestFirst (headers@(_:xh))) =
@@ -224,14 +261,7 @@ verifyHeaders pm leaders (NewestFirst (headers@(_:xh))) =
                              _                    -> prevLeaders
 
         in (curLeaders, verifyHeader pm (toVHP curLeaders prev) cur <> res)
-    toVHP l p =
-        VerifyHeaderParams
-        { vhpPrevHeader = p
-        , vhpCurrentSlot = Nothing
-        , vhpLeaders = l
-        , vhpMaxSize = Nothing
-        , vhpVerifyNoUnknown = False
-        }
+    toVHP l p = verifyHeaderParams p Nothing l Nothing False
 
 ----------------------------------------------------------------------------
 -- Block
@@ -263,10 +293,10 @@ instance NFData VerifyBlockParams
 -- 2.  The size of each block does not exceed `bvdMaxBlockSize`.
 -- 3.  (Optional) No block has any unknown attributes.
 verifyBlock
-    :: HasProtocolConstants
+    :: forall (attr :: Bi.DecoderAttrKind) . HasProtocolConstants
     => ProtocolMagic
     -> VerifyBlockParams
-    -> Block
+    -> Block attr
     -> VerificationRes
 verifyBlock pm VerifyBlockParams {..} blk = mconcat
     [ verifyFromEither "internal block consistency" (BHelpers.verifyBlock pm blk)
@@ -275,10 +305,14 @@ verifyBlock pm VerifyBlockParams {..} blk = mconcat
     , bool mempty (verifyNoUnknown blk) vbpVerifyNoUnknown
     ]
   where
-    -- Oh no! Verification involves re-searilizing the thing!
-    -- What a tragic waste.
-    -- What shall we do about this?
-    blkSize = Bi.biSize blk
+    blkSize = case blockDecoderAttr blk of
+        -- Note: `Block` size is two bytes larger than `GenericBlock` size
+        -- (see `Either` instance for `Bi` class).
+        attr@Bi.DecoderAttrExtRep{} -> 2 + Bi.decoderAttrSize attr
+        Bi.DecoderAttrNone          -> Bi.biSize blk
+        Bi.DecoderAttrOffsets{}     -> let blk' :: Block 'Bi.AttrNone
+                                           blk' = either (Left . Bi.forgetExtRep) (Right . Bi.forgetExtRep) blk
+                                       in Bi.biSize blk'
     checkSize maxSize = verifyGeneric [
       (blkSize <= maxSize,
        sformat ("block's size exceeds limit ("%memory%" > "%memory%")")
@@ -298,7 +332,7 @@ verifyBlock pm VerifyBlockParams {..} blk = mconcat
                ]
 
 -- Type alias for the fold accumulator used inside 'verifyBlocks'
-type VerifyBlocksIter = (SlotLeaders, Maybe BlockHeader, VerificationRes)
+type VerifyBlocksIter attr = (SlotLeaders, Maybe (BlockHeader attr), VerificationRes)
 
 -- CHECK: @verifyBlocks
 -- Verifies a sequence of blocks.
@@ -312,17 +346,17 @@ type VerifyBlocksIter = (SlotLeaders, Maybe BlockHeader, VerificationRes)
 -- laziness of 'VerificationRes' which is good because laziness for this data
 -- type is crucial.
 verifyBlocks
-    :: HasProtocolConstants
+    :: forall (attr :: Bi.DecoderAttrKind) . HasProtocolConstants
     => ProtocolMagic
     -> Maybe SlotId
     -> Bool
     -> BlockVersionData
     -> SlotLeaders
-    -> OldestFirst [] Block
+    -> OldestFirst [] (Block attr)
     -> VerificationRes
 verifyBlocks pm curSlotId verifyNoUnknown bvd initLeaders = view _3 . foldl' step start
   where
-    start :: VerifyBlocksIter
+    start :: VerifyBlocksIter attr
     -- Note that here we never know previous header before this
     -- function is launched.  Which means that we will not do any
     -- checks related to previous header. And it is fine, because we
@@ -330,23 +364,20 @@ verifyBlocks pm curSlotId verifyNoUnknown bvd initLeaders = view _3 . foldl' ste
     -- headers. However, it's a little obscure invariant, so keep it
     -- in mind.
     start = (initLeaders, Nothing, mempty)
-    step :: VerifyBlocksIter -> Block -> VerifyBlocksIter
+    step :: VerifyBlocksIter attr -> Block attr -> VerifyBlocksIter attr
     step (leaders, prevHeader, res) blk =
         let newLeaders = case blk of
                 Left genesisBlock -> genesisBlock ^. genBlockLeaders
                 Right _           -> leaders
-            vhp =
-                VerifyHeaderParams
-                { vhpPrevHeader = prevHeader
-                , vhpLeaders = Just newLeaders
-                , vhpCurrentSlot = curSlotId
-                , vhpMaxSize = Just (bvdMaxHeaderSize bvd)
-                , vhpVerifyNoUnknown = verifyNoUnknown
-                }
-            vbp =
-                VerifyBlockParams
-                { vbpVerifyHeader = vhp
-                , vbpMaxSize = bvdMaxBlockSize bvd
-                , vbpVerifyNoUnknown = verifyNoUnknown
-                }
+            vhp = verifyHeaderParams
+                    prevHeader
+                    curSlotId
+                    (Just newLeaders)
+                    (Just (bvdMaxHeaderSize bvd))
+                    verifyNoUnknown
+            vbp = VerifyBlockParams
+                    { vbpVerifyHeader = vhp
+                    , vbpMaxSize = bvdMaxBlockSize bvd
+                    , vbpVerifyNoUnknown = verifyNoUnknown
+                    }
         in (newLeaders, Just $ getBlockHeader blk, res <> verifyBlock pm vbp blk)

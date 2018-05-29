@@ -29,9 +29,10 @@ import           UnliftIO (MonadUnliftIO)
 import           Pos.Core (ComponentBlock (..), EpochIndex (..), StakeholderId,
                      addressHash, epochIndexL, gbHeader, headerHash,
                      prevBlockL, siEpoch)
-import           Pos.Core.Block (Block, mainBlockDlgPayload, mainBlockSlot)
+import           Pos.Core.Block (Block, mainBlockDlgPayload, mainBlockSlot,
+                     shortHeaderHashF)
 import           Pos.Core.Chrono (NE, NewestFirst (..), OldestFirst (..))
-import           Pos.Crypto (ProtocolMagic, ProxySecretKey (..), shortHashF)
+import           Pos.Crypto (ProtocolMagic, ProxySecretKey (..))
 import           Pos.DB (DBError (DBMalformed), MonadDBRead, SomeBatchOp (..))
 import qualified Pos.DB as DB
 import qualified Pos.DB.GState.Common as GS
@@ -317,14 +318,14 @@ getNoLongerRichmen newEpoch =
 --
 -- It's assumed blocks are correct from Slog perspective.
 dlgVerifyBlocks ::
-       forall ctx m.
+       forall ctx m attr.
        ( MonadDBRead m
        , MonadUnliftIO m
        , MonadReader ctx m
        , HasLrcContext ctx
        )
     => ProtocolMagic
-    -> OldestFirst NE Block
+    -> OldestFirst NE (Block attr)
     -> ExceptT Text m (OldestFirst NE DlgUndo)
 dlgVerifyBlocks pm blocks = do
     richmen <- lift $ getDlgRichmen "dlgVerifyBlocks" headEpoch
@@ -334,7 +335,7 @@ dlgVerifyBlocks pm blocks = do
 
     verifyBlock ::
         RichmenSet ->
-        Block ->
+        Block attr ->
         ExceptT Text (MapCede m) DlgUndo
     verifyBlock _ (Left genesisBlk) = do
         let blkEpoch = genesisBlk ^. epochIndexL
@@ -422,7 +423,7 @@ dlgApplyBlocks dlgBlunds = do
     when (tip /= assumedTip) $ throwM $
         DelegationCantApplyBlocks $
         sformat
-        ("Oldest block is based on tip "%shortHashF%", but our tip is "%shortHashF)
+        ("Oldest block is based on tip "%shortHeaderHashF%", but our tip is "%shortHeaderHashF)
         assumedTip tip
     getOldestFirst <$> mapM applyBlock dlgBlunds
   where

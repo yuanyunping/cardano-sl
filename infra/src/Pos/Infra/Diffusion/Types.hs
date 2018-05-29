@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
@@ -15,6 +16,7 @@ import           Data.Map.Strict (Map)
 import           Formatting (Format, stext)
 import           System.Metrics.Gauge (Gauge)
 
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import           Pos.Core (HeaderHash, ProxySKHeavy)
 import           Pos.Core.Block (Block, BlockHeader, MainBlockHeader)
 import           Pos.Core.Chrono (OldestFirst (..))
@@ -26,7 +28,6 @@ import           Pos.Infra.Communication.Types.Protocol (NodeId)
 import           Pos.Infra.Diffusion.Subscription.Status (SubscriptionStates,
                      emptySubscriptionStates)
 import           Pos.Sinbin.Reporting (HealthStatus (..))
-
 
 data DiffusionHealth = DiffusionHealth {
     dhStreamWriteQueue :: !Gauge -- Number of blocks stored in the block stream write queue
@@ -42,18 +43,18 @@ data Diffusion m = Diffusion
       getBlocks          :: NodeId
                          -> HeaderHash
                          -> [HeaderHash]
-                         -> m (OldestFirst [] Block)
+                         -> m (OldestFirst [] (Block 'AttrExtRep))
     , streamBlocks       :: forall t .
                             NodeId
                          -> HeaderHash
                          -> [HeaderHash]
-                         -> ([Block] -> m t)
+                         -> ([Block 'AttrExtRep] -> m t)
                          -> m (Maybe t)
       -- | This is needed because there's a security worker which will request
       -- tip-of-chain from the network if it determines it's very far behind.
-    , requestTip          :: m (Map NodeId (m BlockHeader))
+    , requestTip          :: m (Map NodeId (m (BlockHeader 'AttrExtRep)))
       -- | Announce a block header.
-    , announceBlockHeader :: MainBlockHeader -> m ()
+    , announceBlockHeader :: MainBlockHeader 'AttrNone -> m ()
       -- | Returns a Bool iff at least one peer accepted the transaction.
       -- I believe it's for the benefit of wallets who wish to know that the
       -- transaction has a hope of making it into a block.

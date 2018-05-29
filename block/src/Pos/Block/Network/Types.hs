@@ -17,8 +17,10 @@ import           Formatting (bprint, build, (%))
 import           Serokell.Util.Text (listJson)
 import           Universum
 
-import           Pos.Binary.Class (Bi (..), Cons (..), Field (..),
-                     deriveSimpleBi, encodeListLen, enforceSize)
+import           Pos.Binary.Class (Bi (..), BiExtRep (..), Cons (..),
+                     DecoderAttrKind (..), Field (..), deriveSimpleBi,
+                     encodeListLen, enforceSize, runEitherExtRep,
+                     runNonEmptyExtRep)
 import           Pos.Core (HeaderHash)
 import           Pos.Core.Block (Block, BlockHeader (..))
 import           Pos.Core.Chrono (NE, NewestFirst (..))
@@ -82,15 +84,15 @@ deriveSimpleBi ''MsgGetBlocks [
     ]]
 
 -- | 'Headers' message (see protocol specification).
-data MsgHeaders
-    = MsgHeaders (NewestFirst NE BlockHeader)
+data MsgHeaders attr
+    = MsgHeaders (NewestFirst NE (BlockHeader attr))
     | MsgNoHeaders Text
     deriving (Eq, Show, Generic)
 
-instance Bi MsgHeaders where
+instance Bi (MsgHeaders 'AttrNone) where
     encode = \case
-        MsgHeaders b -> encodeListLen 2 <> encode (0 :: Word8) <> encode b
-        MsgNoHeaders t -> encodeListLen 2 <> encode (1 :: Word8) <> encode t
+        (MsgHeaders b) -> encodeListLen 2 <> encode (0 :: Word8) <> encode b
+        (MsgNoHeaders t) -> encodeListLen 2 <> encode (1 :: Word8) <> encode t
     decode = do
         enforceSize "MsgHeaders" 2
         tag <- decode @Word8
@@ -99,13 +101,26 @@ instance Bi MsgHeaders where
             1 -> MsgNoHeaders <$> decode
             t -> cborError $ "MsgHeaders wrong tag: " <> show t
 
+instance BiExtRep MsgHeaders where
+    decodeWithOffsets = do
+        enforceSize "MsgHeaders" 2
+        tag <- decode @Word8
+        case tag of
+            0 -> MsgHeaders . NewestFirst . runNonEmptyExtRep <$> decodeWithOffsets
+            1 -> MsgNoHeaders <$> decode
+            t -> cborError $ "MsgHeaders wrong tag: " <> show t
+    spliceExtRep bs (MsgHeaders hs)  = MsgHeaders $ fmap (spliceExtRep bs) hs
+    spliceExtRep _  (MsgNoHeaders t) = MsgNoHeaders t
+    forgetExtRep (MsgHeaders hs)  = MsgHeaders $ fmap forgetExtRep hs
+    forgetExtRep (MsgNoHeaders t) = MsgNoHeaders t
+
 -- | 'Block' message (see protocol specification).
-data MsgBlock
-    = MsgBlock Block
+data MsgBlock attr
+    = MsgBlock (Block attr)
     | MsgNoBlock Text
     deriving (Eq, Show, Generic)
 
-instance Bi MsgBlock where
+instance Bi (MsgBlock 'AttrNone) where
     encode = \case
         MsgBlock b -> encodeListLen 2 <> encode (0 :: Word8) <> encode b
         MsgNoBlock t -> encodeListLen 2 <> encode (1 :: Word8) <> encode t
@@ -116,6 +131,19 @@ instance Bi MsgBlock where
             0 -> MsgBlock <$> decode
             1 -> MsgNoBlock <$> decode
             t -> cborError $ "MsgBlock wrong tag: " <> show t
+
+instance BiExtRep MsgBlock where
+    decodeWithOffsets = do
+        enforceSize "MsgBlock" 2
+        tag <- decode @Word8
+        case tag of
+            0 -> MsgBlock . runEitherExtRep <$> decodeWithOffsets
+            1 -> MsgNoBlock <$> decode
+            t -> cborError $ "MsgBlock wrong tag: " <> show t
+    spliceExtRep bs (MsgBlock blk) = MsgBlock $ bimap (spliceExtRep bs) (spliceExtRep bs) blk
+    spliceExtRep _  (MsgNoBlock t) = MsgNoBlock t
+    forgetExtRep (MsgBlock blk) = MsgBlock $ bimap forgetExtRep forgetExtRep blk
+    forgetExtRep (MsgNoBlock t) = MsgNoBlock t
 
 -- | 'SerializedBlock' message
 data MsgSerializedBlock
@@ -162,13 +190,13 @@ instance Bi MsgStream where
             1 -> MsgUpdate <$> decode
             t -> cborError $ "MsgStream wrong tag: " <> show t
 
-data MsgStreamBlock
-    = MsgStreamBlock Block
+data MsgStreamBlock attr
+    = MsgStreamBlock (Block attr)
     | MsgStreamNoBlock Text
     | MsgStreamEnd
     deriving (Eq, Show, Generic)
 
-instance Bi MsgStreamBlock where
+instance Bi (MsgStreamBlock 'AttrNone) where
     encode = \case
         MsgStreamBlock b -> encodeListLen 2 <> encode (0 :: Word8) <> encode b
         MsgStreamNoBlock t -> encodeListLen 2 <> encode (1 :: Word8) <> encode t
@@ -183,3 +211,21 @@ instance Bi MsgStreamBlock where
                  (_ :: Word8 )<- decode
                  pure MsgStreamEnd
             t -> cborError $ "MsgStreamBlock wrong tag: " <> show t
+
+instance BiExtRep MsgStreamBlock where
+    decodeWithOffsets = do
+        enforceSize "MsgBlock" 2
+        tag <- decode @Word8
+        case tag of
+            0 -> MsgStreamBlock . runEitherExtRep <$> decodeWithOffsets
+            1 -> MsgStreamNoBlock <$> decode
+            2 -> do
+                 (_ :: Word8 )<- decode
+                 pure MsgStreamEnd
+            t -> cborError $ "MsgStreamBlock wrong tag: " <> show t
+    spliceExtRep bs (MsgStreamBlock blk) = MsgStreamBlock $ bimap (spliceExtRep bs) (spliceExtRep bs) blk
+    spliceExtRep _  (MsgStreamNoBlock t) = MsgStreamNoBlock t
+    spliceExtRep _  MsgStreamEnd         = MsgStreamEnd
+    forgetExtRep (MsgStreamBlock blk) = MsgStreamBlock $ bimap forgetExtRep forgetExtRep blk
+    forgetExtRep (MsgStreamNoBlock t) = MsgStreamNoBlock t
+    forgetExtRep MsgStreamEnd         = MsgStreamEnd

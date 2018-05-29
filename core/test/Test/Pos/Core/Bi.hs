@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Test.Pos.Core.Bi
        ( tests
@@ -20,14 +21,14 @@ import qualified Data.Vector as V
 import           Hedgehog (Property)
 import qualified Hedgehog as H
 
-import           Pos.Binary.Class (Raw (..), asBinary)
+import           Pos.Binary.Class (DecoderAttrKind (..), Raw (..), asBinary)
 import           Pos.Core.Block (BlockHeader (..), BlockHeaderAttributes,
                      BlockSignature (..), GenesisBlockHeader, GenesisBody (..),
                      GenesisConsensusData (..), GenesisProof (..), HeaderHash,
                      MainBlockHeader, MainBody (..), MainConsensusData (..),
                      MainExtraBodyData (..), MainExtraHeaderData (..),
-                     MainProof (..), MainToSign (..), mkGenesisHeader,
-                     mkMainHeaderExplicit)
+                     MainProof (..), MainToSign (..), anyHeaderHash,
+                     headerHash, mkGenesisHeader', mkMainHeaderExplicit')
 import           Pos.Core.Common (AddrAttributes (..), AddrSpendingData (..),
                      AddrStakeDistribution (..), AddrType (..),
                      BlockCount (..), ChainDifficulty (..), Coeff (..),
@@ -1258,12 +1259,12 @@ feedPMC genA = do
 exampleAttributes :: Attributes ()
 exampleAttributes = mkAttributes ()
 
-exampleBlockHeaderGenesis :: BlockHeader
+exampleBlockHeaderGenesis :: BlockHeader 'AttrNone
 exampleBlockHeaderGenesis = (BlockHeaderGenesis exampleGenesisBlockHeader)
 
-exampleBlockHeaderMain :: MainBlockHeader
+exampleBlockHeaderMain :: MainBlockHeader 'AttrNone
 exampleBlockHeaderMain =
-  mkMainHeaderExplicit (ProtocolMagic 0) exampleHeaderHash
+  mkMainHeaderExplicit' (ProtocolMagic 0) exampleHeaderHash
                        exampleChainDifficulty exampleSlotId
                        exampleSecretKey Nothing
                        exampleMainBody exampleMainExtraHeaderData
@@ -1670,8 +1671,8 @@ getText offset len = T.take len $ T.drop offset staticText
 exampleTxPayload :: TxPayload
 exampleTxPayload = mkTxPayload [exampleTxAux]
 
-exampleGenesisBlockHeader :: GenesisBlockHeader
-exampleGenesisBlockHeader = mkGenesisHeader (ProtocolMagic 0)
+exampleGenesisBlockHeader :: GenesisBlockHeader 'AttrNone
+exampleGenesisBlockHeader = mkGenesisHeader' (ProtocolMagic 0)
                                             (Left (GenesisHash prevHash))
                                             (EpochIndex 11)
                                             exampleGenesisBody
@@ -1689,8 +1690,8 @@ exampleSoftwareVersion = SoftwareVersion (ApplicationName "Golden") 99
 
 -- We use `Nothing` as the ProxySKBlockInfo to avoid clashing key errors
 -- (since we use example keys which aren't related to each other)
-exampleMainBlockHeader :: MainBlockHeader
-exampleMainBlockHeader = mkMainHeaderExplicit (ProtocolMagic 7)
+exampleMainBlockHeader :: MainBlockHeader 'AttrNone
+exampleMainBlockHeader = mkMainHeaderExplicit' (ProtocolMagic 7)
                                               exampleHeaderHash
                                               exampleChainDifficulty
                                               exampleSlotId
@@ -1700,7 +1701,7 @@ exampleMainBlockHeader = mkMainHeaderExplicit (ProtocolMagic 7)
                                               exampleMainExtraHeaderData
 
 exampleHeaderHash :: HeaderHash
-exampleHeaderHash = coerce (hash ("HeaderHash" :: Text))
+exampleHeaderHash = anyHeaderHash $ coerce (hash ("HeaderHash" :: Text))
 
 exampleHashTx :: Hash Tx
 exampleHashTx = coerce (hash "golden" :: Hash Text)
@@ -1715,7 +1716,7 @@ exampleMainBody = MainBody exampleTxPayload exampleSscPayload
     dp = UnsafeDlgPayload (take 4 staticProxySKHeavys)
 
 exampleMainToSign :: MainToSign
-exampleMainToSign = MainToSign (abstractHash (BlockHeaderGenesis exampleGenesisBlockHeader))
+exampleMainToSign = MainToSign (headerHash (BlockHeaderGenesis exampleGenesisBlockHeader))
                     exampleMainProof exampleSlotId exampleChainDifficulty exampleMainExtraHeaderData
 
 exampleSscProof :: SscProof

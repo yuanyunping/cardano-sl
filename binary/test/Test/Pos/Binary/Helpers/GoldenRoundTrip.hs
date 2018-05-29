@@ -120,7 +120,7 @@ goldenTestBi x path = withFrozenCallStack $ do
         bs <- liftIO $ BS.readFile path
         let target = B16.decode bs
         compareHexDump bs bs'
-        fmap decodeFull target === Just (Right x)
+        fmap (decodeFull decode label) target === Just (Right x)
 
 eachOf :: (Show a) => TestLimit -> Gen a -> (a -> PropertyT IO ()) -> Property
 eachOf testLimit things hasProperty =
@@ -133,12 +133,12 @@ eachOf testLimit things hasProperty =
 -- use this version.
 roundTripsBiShow :: (Bi a, Eq a, MonadTest m, Show a) => a -> m ()
 roundTripsBiShow x =
-    tripping x serialize decodeFull
+    tripping x serialize (decodeFull decode label)
 
 -- | Round trip (via ByteString) any instance of the 'Bi' class
 -- that also has a 'Buildable' instance.
 roundTripsBiBuildable :: (Bi a, Eq a, MonadTest m, Buildable a) => a -> m ()
-roundTripsBiBuildable a = trippingBuildable a serialize decodeFull
+roundTripsBiBuildable a = trippingBuildable a serialize (decodeFull decode label)
 
 roundTripsAesonShow
     :: (Eq a, MonadTest m, ToJSON a, FromJSON a, Show a) => a -> m ()

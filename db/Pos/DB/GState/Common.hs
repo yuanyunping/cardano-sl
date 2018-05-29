@@ -32,9 +32,8 @@ import qualified Database.RocksDB as Rocks
 import           Formatting (bprint, int, sformat, stext, (%))
 
 import           Pos.Binary.Class (Bi)
-import           Pos.Core (ChainDifficulty, HeaderHash)
+import           Pos.Core (ChainDifficulty, HeaderHash, shortHeaderHashF)
 import           Pos.Core.Configuration (HasCoreConfiguration)
-import           Pos.Crypto (shortHashF)
 import           Pos.DB.BatchOp (RocksBatchOp (..), dbWriteBatch')
 import           Pos.DB.Class (DBTag (GStateDB), MonadDB (dbDelete),
                      MonadDBRead (..))
@@ -94,7 +93,7 @@ data CommonOp = PutTip HeaderHash | PutMaxSeenDifficulty ChainDifficulty
 
 instance Buildable CommonOp where
     build (PutTip h) =
-        bprint ("PutTip ("%shortHashF%")") h
+        bprint ("PutTip ("%shortHeaderHashF%")") h
     build (PutMaxSeenDifficulty d) =
         bprint ("PutMaxSeenDifficulty ("%int%")") d
 

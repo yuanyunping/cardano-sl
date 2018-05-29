@@ -149,7 +149,7 @@ unpackHDAddressAttr (HDPassphrase passphrase) (HDAddressPayload payload) = do
               payload
     case unpackCF of
         Left _ -> Nothing
-        Right p -> case decodeFull' p of
+        Right p -> case decodeFull' decode label p of
             Left _     -> Nothing
             Right path -> pure path
 

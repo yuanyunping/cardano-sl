@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
@@ -37,6 +38,7 @@ module Pos.DB.Class
        , MonadBlockDBRead
        , getDeserialized
        , getBlock
+       , getBlockWithExtRep
        , MonadDB (..)
 
          -- * GState
@@ -57,7 +59,8 @@ import           Data.Conduit (ConduitT, transPipe)
 import qualified Database.RocksDB as Rocks
 import           Serokell.Data.Memory.Units (Byte)
 
-import           Pos.Binary.Class (Bi, decodeFull')
+import           Pos.Binary.Class (Bi (..), BiExtRep (..), DecoderAttrKind (..),
+                     EitherExtRep (..), decodeFull')
 import           Pos.Core (Block, BlockHeader, BlockVersionData (..),
                      EpochIndex, HasConfiguration, HeaderHash, isBootstrapEra)
 import           Pos.DB.Error (DBError (DBMalformed))
@@ -132,10 +135,20 @@ getDeserialized
     => (x -> m (Maybe (Serialized tag))) -> x -> m (Maybe v)
 getDeserialized getter x = getter x >>= \case
     Nothing  -> pure Nothing
-    Just ser -> eitherToThrow $ bimap DBMalformed Just $ decodeFull' $ unSerialized ser
+    Just ser -> eitherToThrow $ bimap DBMalformed Just $ decodeFull' decode label $ unSerialized ser
 
-getBlock :: MonadBlockDBRead m => HeaderHash -> m (Maybe Block)
+getBlock :: MonadBlockDBRead m => HeaderHash -> m (Maybe (Block 'AttrNone))
 getBlock = getDeserialized dbGetSerBlock
+
+getBlockWithExtRep :: MonadBlockDBRead m => HeaderHash -> m (Maybe (Block 'AttrExtRep))
+getBlockWithExtRep headerHash = do
+    mb <- dbGetSerBlock headerHash
+    case mb of
+        Nothing              -> pure Nothing
+        Just (Serialized bs) -> eitherToThrow
+             $ bimap DBMalformed (Just . runEitherExtRep . spliceExtRep bs)
+             $ decodeFull' decodeWithOffsets labelExtRep
+             $ bs
 
 -- | Pure interface to the database. Combines read-only interface and
 -- ability to put raw bytes.
@@ -164,7 +177,7 @@ class MonadDBRead m => MonadDB m where
     dbDelete :: DBTag -> ByteString -> m ()
 
     -- | Put given blunds into the Block DB.
-    dbPutSerBlunds :: NonEmpty (BlockHeader, SerializedBlund) -> m ()
+    dbPutSerBlunds :: NonEmpty (BlockHeader 'AttrNone, SerializedBlund) -> m ()
 
 instance {-# OVERLAPPABLE #-}
     (MonadDB m, MonadTrans t, MonadThrow (t m)) =>

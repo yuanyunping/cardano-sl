@@ -1,9 +1,10 @@
--- | Types used for block processing: most importantly, 'Undo' and 'Blund'.
+-- | Types used for block processing: most importantly, 'attrUndo' and 'Blund'.
 
 module Pos.Block.Types
        ( SlogUndo (..)
        , Undo (..)
        , Blund
+       , forgetBlundExtRep
 
        , LastKnownHeader
        , LastKnownHeaderTag
@@ -21,7 +22,8 @@ import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
 import           Serokell.Util.Text (listJson)
 
-import           Pos.Binary.Class (Cons (..), Field (..), deriveSimpleBi)
+import           Pos.Binary.Class (Cons (..), DecoderAttrKind (..), Field (..),
+                     deriveSimpleBi, forgetExtRep)
 import           Pos.Block.Slog.Types (SlogUndo (..))
 import           Pos.Core (HasConfiguration, HasDifficulty (..),
                      HasHeaderHash (..))
@@ -43,7 +45,10 @@ data Undo = Undo
 instance NFData Undo
 
 -- | Block and its Undo.
-type Blund = (Block, Undo)
+type Blund attr = (Block attr, Undo)
+
+forgetBlundExtRep :: Blund attr -> Blund 'AttrNone
+forgetBlundExtRep (b, u) = (bimap forgetExtRep forgetExtRep b, u)
 
 instance HasConfiguration => Buildable Undo where
     build Undo{..} =
@@ -54,21 +59,21 @@ instance HasConfiguration => Buildable Undo where
                 "  undoSlog: "%build)
                (map (bprint listJson) undoTx) undoDlg undoUS undoSlog
 
-instance HasDifficulty Blund where
+instance HasDifficulty (Blund attr) where
     difficultyL = _1 . difficultyL
 
-instance HasHeaderHash Blund where
+instance HasHeaderHash (Blund attr) where
     headerHash = headerHash . fst
 
 -- | For a description of what these types mean,
 -- please refer to @NodeContext@ in @Pos.Context.Context@.
 data LastKnownHeaderTag
-type LastKnownHeader = TVar (Maybe BlockHeader)
+type LastKnownHeader = TVar (Maybe (BlockHeader 'AttrNone))
 type MonadLastKnownHeader ctx m
      = (MonadReader ctx m, HasLens LastKnownHeaderTag ctx LastKnownHeader)
 
 data RecoveryHeaderTag
-type RecoveryHeader = STM.TMVar (NodeId, BlockHeader)
+type RecoveryHeader = STM.TMVar (NodeId, BlockHeader 'AttrNone)
 type MonadRecoveryHeader ctx m
      = (MonadReader ctx m, HasLens RecoveryHeaderTag ctx RecoveryHeader)
 

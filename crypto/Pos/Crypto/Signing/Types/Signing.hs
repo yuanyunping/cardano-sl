@@ -206,7 +206,7 @@ instance Bi a => SafeCopy (Signed a) where
     putCopy (Signed v s) = contain $ safePut (Bi.serialize' (v,s))
     getCopy = contain $ do
         bs <- safeGet
-        case Bi.decodeFull bs of
+        case Bi.decodeFull decode label bs of
             Left err    -> cerealError $ "getCopy@SafeCopy: " <> err
             Right (v,s) -> pure $ Signed v s
 

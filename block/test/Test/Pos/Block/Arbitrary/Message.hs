@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds            #-}
 {-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -12,6 +14,7 @@ import           Test.QuickCheck.Arbitrary.Generic (genericArbitrary,
                      genericShrink)
 
 import           Pos.Arbitrary.Ssc ()
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import qualified Pos.Block.Network.Types as T
 import           Pos.Core (HasGenesisHash, HasProtocolConstants)
 
@@ -31,11 +34,11 @@ instance Arbitrary T.MsgGetBlocks where
     arbitrary = genericArbitrary
     shrink = genericShrink
 
-instance HasProtocolConstants => Arbitrary T.MsgHeaders where
+instance HasProtocolConstants => Arbitrary (T.MsgHeaders 'AttrNone) where
     arbitrary = genericArbitrary
     shrink = genericShrink
 
-instance (HasProtocolConstants, HasGenesisHash) => Arbitrary T.MsgBlock where
+instance (HasProtocolConstants, HasGenesisHash) => Arbitrary (T.MsgBlock 'AttrNone) where
     arbitrary = genericArbitrary
     shrink = genericShrink
 
@@ -54,6 +57,6 @@ instance Arbitrary T.MsgStreamUpdate where
 instance ( HasProtocolConstants
          , HasGenesisHash
          ) =>
-         Arbitrary T.MsgStreamBlock where
+         Arbitrary (T.MsgStreamBlock 'AttrNone) where
     arbitrary = genericArbitrary
     shrink = genericShrink

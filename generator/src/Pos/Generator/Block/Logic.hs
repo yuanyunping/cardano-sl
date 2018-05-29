@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE RankNTypes          #-}
 
 -- | Blockchain generation logic.
@@ -19,6 +20,7 @@ import           System.Random (RandomGen (..))
 import           System.Wlog (logWarning)
 
 import           Pos.AllSecrets (HasAllSecrets (..), unInvSecretsMap)
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import           Pos.Block.Logic (VerifyBlocksContext (..), applyBlocksUnsafe,
                      createMainBlockInternal, getVerifyBlocksContext,
                      getVerifyBlocksContext', normalizeMempool,
@@ -30,7 +32,7 @@ import           Pos.Communication.Message ()
 import           Pos.Core (EpochOrSlot (..), SlotId (..), addressHash,
                      epochIndexL, getEpochOrSlot, getSlotIndex)
 import           Pos.Core.Block (Block, BlockHeader)
-import           Pos.Core.Block.Constructors (mkGenesisBlock)
+import           Pos.Core.Block.Constructors (mkGenesisBlock')
 import           Pos.Crypto (ProtocolMagic, pskDelegatePk)
 import qualified Pos.DB.BlockIndex as DB
 import           Pos.Delegation.Logic (getDlgTransPsk)
@@ -77,7 +79,7 @@ genBlocks ::
        forall g ctx m t . (HasTxpConfiguration, BlockTxpGenMode g ctx m, Semigroup t, Monoid t)
     => ProtocolMagic
     -> BlockGenParams
-    -> (Maybe Blund -> t)
+    -> (Maybe (Blund 'AttrNone) -> t)
     -> RandT g m t
 genBlocks pm params inj = do
     ctx <- lift $ mkBlockGenContext @(MempoolExt m) params
@@ -109,8 +111,8 @@ genBlockNoApply
        )
     => ProtocolMagic
     -> EpochOrSlot
-    -> BlockHeader -- ^ previoud block header
-    -> BlockGenRandMode (MempoolExt m) g m (Maybe Block)
+    -> (BlockHeader 'AttrNone) -- ^ previoud block header
+    -> BlockGenRandMode (MempoolExt m) g m (Maybe (Block 'AttrNone))
 genBlockNoApply pm eos header = do
     let epoch = eos ^. epochIndexL
     lift $ unlessM ((epoch ==) <$> LrcDB.getEpoch) (lrcSingleShot pm epoch)
@@ -118,7 +120,7 @@ genBlockNoApply pm eos header = do
     leaders <- lift $ lrcActionOnEpochReason epoch "genBlock" LrcDB.getLeadersForEpoch
     case eos of
         EpochOrSlot (Left _) -> do
-            let genesisBlock = mkGenesisBlock pm (Right header) epoch leaders
+            let genesisBlock = mkGenesisBlock' pm (Right header) epoch leaders
             return $ Just $ Left genesisBlock
         EpochOrSlot (Right slot@SlotId {..}) -> withCurrentSlot slot $ do
             genPayload pm slot
@@ -149,7 +151,7 @@ genBlockNoApply pm eos header = do
     genMainBlock ::
         SlotId ->
         ProxySKBlockInfo ->
-        BlockGenMode (MempoolExt m) m Block
+        BlockGenMode (MempoolExt m) m (Block 'AttrNone)
     genMainBlock slot proxySkInfo =
         createMainBlockInternal pm slot proxySkInfo >>= \case
             Left err -> throwM (BGFailedToCreate err)
@@ -167,7 +169,7 @@ genBlock ::
        )
     => ProtocolMagic
     -> EpochOrSlot
-    -> BlockGenRandMode (MempoolExt m) g m (Maybe Blund)
+    -> BlockGenRandMode (MempoolExt m) g m (Maybe (Blund 'AttrNone))
 genBlock pm eos = do
     let epoch = eos ^. epochIndexL
     tipHeader <- lift DB.getTipHeader
@@ -183,8 +185,8 @@ genBlock pm eos = do
     where
     verifyAndApply
         :: VerifyBlocksContext
-        -> Block
-        -> BlockGenMode (MempoolExt m) m Blund
+        -> (Block 'AttrNone)
+        -> BlockGenMode (MempoolExt m) m (Blund 'AttrNone)
     verifyAndApply ctx block =
         verifyBlocksPrefix pm ctx (one block) >>= \case
             Left err -> throwM (BGCreatedInvalid err)

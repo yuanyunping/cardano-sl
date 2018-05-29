@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 module Test.Pos.Core.Gen
        (
         -- Pos.Core.Block Generators
@@ -156,7 +157,8 @@ import qualified Data.Vector as V
 import           Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import           Pos.Binary.Class (Bi, Raw (..), asBinary)
+import           Pos.Binary.Class (Bi, DecoderAttr (..), DecoderAttrKind (..),
+                     Raw (..), asBinary)
 import           Pos.Core.Block (BlockBodyAttributes, BlockHeader (..),
                      BlockHeaderAttributes, BlockSignature (..),
                      GenesisBlockHeader, GenesisBody (..),
@@ -164,8 +166,8 @@ import           Pos.Core.Block (BlockBodyAttributes, BlockHeader (..),
                      GenesisProof (..), HeaderHash, MainBlockHeader,
                      MainBody (..), MainConsensusData (..),
                      MainExtraBodyData (..), MainExtraHeaderData (..),
-                     MainProof (..), MainToSign (..), mkGenericHeader,
-                     mkMainHeaderExplicit)
+                     MainProof (..), MainToSign (..), anyHeaderHash,
+                     headerHash, mkGenericHeader, mkMainHeaderExplicit')
 import           Pos.Core.Common (AddrAttributes (..), AddrSpendingData (..),
                      AddrStakeDistribution (..), AddrType (..), Address (..),
                      BlockCount (..), ChainDifficulty (..), Coeff (..),
@@ -229,7 +231,7 @@ import           Test.Pos.Crypto.Gen (genAbstractHash, genDecShare,
 genBlockBodyAttributes :: Gen BlockBodyAttributes
 genBlockBodyAttributes = pure $ mkAttributes ()
 
-genBlockHeader :: ProtocolMagic -> ProtocolConstants -> Gen BlockHeader
+genBlockHeader :: ProtocolMagic -> ProtocolConstants -> Gen (BlockHeader 'AttrNone)
 genBlockHeader pm pc =
     Gen.choice [ BlockHeaderGenesis <$> genGenesisBlockHeader pm
                , BlockHeaderMain <$> genMainBlockHeader pm pc
@@ -251,16 +253,16 @@ genBlockSignature pm pc = do
   where
     mts = genMainToSign pm pc
 
-genGenesisBlockHeader :: ProtocolMagic -> Gen GenesisBlockHeader
+genGenesisBlockHeader :: ProtocolMagic -> Gen (GenesisBlockHeader 'AttrNone)
 genGenesisBlockHeader pm = do
     epoch      <- genEpochIndex
     body       <- genGenesisBody
-    prevHash   <- coerce <$> genTextHash
+    prevHash   <- genHeaderHash
     difficulty <- genChainDifficulty
     let consensus = const (GenesisConsensusData {_gcdEpoch      = epoch
                                                 ,_gcdDifficulty = difficulty})
         gehd      = GenesisExtraHeaderData $ mkAttributes ()
-    pure (mkGenericHeader pm prevHash body consensus gehd)
+    pure (mkGenericHeader pm prevHash body consensus gehd DecoderAttrNone)
 
 genGenesisBody :: Gen GenesisBody
 genGenesisBody = GenesisBody <$> genSlotLeaders
@@ -277,7 +279,7 @@ genGenesisHash = do
     pure (GenesisHash (coerce th))
 
 genHeaderHash :: Gen HeaderHash
-genHeaderHash = coerce <$> genTextHash
+genHeaderHash = anyHeaderHash . coerce <$> genTextHash
 
 genGenesisProof :: Gen GenesisProof
 genGenesisProof = GenesisProof <$> genAbstractHash genSlotLeaders
@@ -292,9 +294,9 @@ genMainBody pm =
 
 -- We use `Nothing` as the ProxySKBlockInfo to avoid clashing key errors
 -- (since we use example keys which aren't related to each other)
-genMainBlockHeader :: ProtocolMagic -> ProtocolConstants -> Gen MainBlockHeader
+genMainBlockHeader :: ProtocolMagic -> ProtocolConstants -> Gen (MainBlockHeader 'AttrNone)
 genMainBlockHeader pm pc =
-    mkMainHeaderExplicit pm
+    mkMainHeaderExplicit' pm
         <$> genHeaderHash
         <*> genChainDifficulty
         <*> genSlotId pc
@@ -334,7 +336,7 @@ genMainProof pm =
 genMainToSign :: ProtocolMagic -> ProtocolConstants -> Gen MainToSign
 genMainToSign pm pc =
     MainToSign
-        <$> genAbstractHash (genBlockHeader pm pc)
+        <$> (headerHash <$> (genBlockHeader pm pc))
         <*> genMainProof pm
         <*> genSlotId pc
         <*> genChainDifficulty

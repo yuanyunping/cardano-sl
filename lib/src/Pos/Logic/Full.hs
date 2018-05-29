@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -15,6 +16,7 @@ import           Formatting (build, sformat, (%))
 import           Pipes (Producer)
 import           System.Wlog (WithLogger, logDebug)
 
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import           Pos.Block.BlockWorkMode (BlockWorkMode)
 import           Pos.Block.Configuration (HasBlockConfiguration)
 import qualified Pos.Block.Logic as Block
@@ -113,10 +115,10 @@ logicFull pm ourStakeholderId securityParams jsonLogTx =
         streamBlocks :: HeaderHash -> Producer SerializedBlock m ()
         streamBlocks = DB.streamBlocks DB.dbGetSerBlock DB.resolveForwardLink
 
-        getTip :: m Block
+        getTip :: m (Block 'AttrNone)
         getTip = DB.getTipBlock
 
-        getTipHeader :: m BlockHeader
+        getTipHeader :: m (BlockHeader 'AttrNone)
         getTipHeader = DB.getTipHeader
 
         getAdoptedBVData :: m BlockVersionData
@@ -125,7 +127,7 @@ logicFull pm ourStakeholderId securityParams jsonLogTx =
         recoveryInProgress :: m Bool
         recoveryInProgress = Recovery.recoveryInProgress
 
-        getBlockHeader :: HeaderHash -> m (Maybe BlockHeader)
+        getBlockHeader :: HeaderHash -> m (Maybe (BlockHeader 'AttrNone))
         getBlockHeader = DB.getHeader
 
         getHashesRange
@@ -139,13 +141,13 @@ logicFull pm ourStakeholderId securityParams jsonLogTx =
             :: Maybe Word -- ^ Optional limit on how many to pull in.
             -> NonEmpty HeaderHash
             -> Maybe HeaderHash
-            -> m (Either Block.GetHeadersFromManyToError (NewestFirst NE BlockHeader))
+            -> m (Either Block.GetHeadersFromManyToError (NewestFirst NE (BlockHeader 'AttrNone)))
         getBlockHeaders = Block.getHeadersFromManyTo
 
-        getLcaMainChain :: OldestFirst [] BlockHeader -> m (OldestFirst [] BlockHeader)
+        getLcaMainChain :: forall attr. OldestFirst [] (BlockHeader attr) -> m (OldestFirst [] (BlockHeader attr))
         getLcaMainChain = Block.lcaWithMainChainSuffix
 
-        postBlockHeader :: BlockHeader -> NodeId -> m ()
+        postBlockHeader :: BlockHeader 'AttrExtRep -> NodeId -> m ()
         postBlockHeader = Block.handleUnsolicitedHeader pm
 
         postPskHeavy :: ProxySKHeavy -> m Bool

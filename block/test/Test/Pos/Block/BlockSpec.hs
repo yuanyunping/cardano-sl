@@ -1,8 +1,10 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RankNTypes       #-}
-{-# LANGUAGE TupleSections    #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns     #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE TupleSections     #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE ViewPatterns      #-}
 
 -- | Specification of Pos.Block and Pos.Block.Pure.
 
@@ -12,14 +14,16 @@ module Test.Pos.Block.BlockSpec
 
 import           Universum
 
-import           Serokell.Util (isVerSuccess)
+import           Serokell.Util (VerificationRes (..), isVerSuccess)
 import           Test.Hspec (Spec, describe, it)
 import           Test.Hspec.QuickCheck (modifyMaxSuccess, prop)
 import           Test.QuickCheck (Property, (===), (==>))
 
-import           Pos.Binary.Class (Bi)
+import           Pos.Binary.Class (Bi, DecoderAttrKind (..), DecoderAttr (..),
+                     fillExtRep)
 import qualified Pos.Block.Logic.Integrity as Block
-import           Pos.Core (GenesisHash (..), HasConfiguration, genesisHash)
+import           Pos.Core (GenesisHash (..), HasConfiguration, genesisHash,
+                     genesisHeaderHash)
 import           Pos.Core (BlockHeader (..), BlockSignature (..),
                      EpochIndex (..), GenericBlockHeader (..),
                      GenesisBlockchain, GenesisBody (..),
@@ -27,8 +31,8 @@ import           Pos.Core (BlockHeader (..), BlockSignature (..),
                      HeavyDlgIndex (..), LightDlgIndices (..), MainBlockchain,
                      MainBody (..), MainConsensusData (..),
                      MainExtraHeaderData (..), MainToSign (..), SlotId (..),
-                     difficultyL, headerHash, mkBodyProof, mkGenericHeader,
-                     mkGenesisHeader)
+                     difficultyL, headerHash, mkBodyProof, mkGenericHeader',
+                     mkGenesisHeader')
 import           Pos.Core.Chrono (NewestFirst (..))
 import           Pos.Core.Configuration (defaultCoreConfiguration,
                      withGenesisSpec)
@@ -69,7 +73,7 @@ spec = withGenesisSpec 0 defaultCoreConfiguration $ \_ ->
         "Successfully verifies a correct chain of block headers"
     verifyEmptyHsDesc = "Successfully validates an empty header chain"
     emptyHeaderChain
-        :: NewestFirst [] BlockHeader
+        :: NewestFirst [] (BlockHeader 'AttrExtRep)
         -> Spec
     emptyHeaderChain l =
         it verifyEmptyHsDesc $ isVerSuccess $ Block.verifyHeaders dummyProtocolMagic Nothing l
@@ -82,13 +86,13 @@ spec = withGenesisSpec 0 defaultCoreConfiguration $ \_ ->
 
 genesisHeaderFormation
     :: HasConfiguration
-    => Maybe BlockHeader
+    => Maybe (BlockHeader 'AttrNone)
     -> EpochIndex
     -> GenesisBody
     -> Property
 genesisHeaderFormation prevHeader epoch body = header === manualHeader
   where
-    header = mkGenesisHeader
+    header = mkGenesisHeader'
         dummyProtocolMagic
         (maybe (Left (GenesisHash genesisHash)) Right prevHeader)
         epoch
@@ -99,8 +103,9 @@ genesisHeaderFormation prevHeader epoch body = header === manualHeader
         , _gbhBodyProof     = proof
         , _gbhConsensus     = consensus h proof
         , _gbhExtra         = GenesisExtraHeaderData $ mkAttributes ()
+        , _gbhDecoderAttr = DecoderAttrNone
         }
-    h          = maybe genesisHash headerHash prevHeader
+    h          = maybe genesisHeaderHash headerHash prevHeader
     proof      = mkBodyProof @GenesisBlockchain body
     difficulty = maybe 0 (view difficultyL) prevHeader
     consensus _ _ = GenesisConsensusData
@@ -110,7 +115,7 @@ genesisHeaderFormation prevHeader epoch body = header === manualHeader
 
 mainHeaderFormation
     :: HasConfiguration
-    => Maybe BlockHeader
+    => Maybe (BlockHeader 'AttrNone)
     -> SlotId
     -> Either SecretKey (SecretKey, SecretKey, Bool)
     -> MainBody
@@ -121,7 +126,7 @@ mainHeaderFormation prevHeader slotId signer body extra =
   where
     correctSigner (Left  _        ) = True
     correctSigner (Right (i, d, _)) = i /= d
-    header = mkGenericHeader @MainBlockchain dummyProtocolMagic
+    header = mkGenericHeader' @MainBlockchain dummyProtocolMagic
                                                  prevHash
                                                  body
                                                  consensus
@@ -133,8 +138,9 @@ mainHeaderFormation prevHeader slotId signer body extra =
         , _gbhBodyProof = proof
         , _gbhConsensus = consensus proof
         , _gbhExtra = extra
+        , _gbhDecoderAttr = DecoderAttrNone
         }
-    prevHash = maybe genesisHash headerHash prevHeader
+    prevHash = maybe genesisHeaderHash headerHash prevHeader
     proof = mkBodyProof @MainBlockchain body
     (sk, pSk) = either (, Nothing) mkProxySk signer
     mkProxySk (issuerSK, delegateSK, isSigEpoch) =
@@ -185,6 +191,8 @@ validateBadProtocolMagicMainHeader (BT.getHAndP -> (params, header)) =
             BlockHeaderMain h    -> BlockHeaderMain    (h { _gbhProtocolMagic = protocolMagic' })
     in  not $ isVerSuccess $ Block.verifyHeader dummyProtocolMagic params header'
 
-validateGoodHeaderChain :: BT.BlockHeaderList -> Bool
-validateGoodHeaderChain (BT.BHL (l, _)) =
-    isVerSuccess $ Block.verifyHeaders dummyProtocolMagic Nothing (NewestFirst l)
+validateGoodHeaderChain :: BT.BlockHeaderList -> Property
+validateGoodHeaderChain (BT.BHL (headers, _)) =
+    -- Throw an error if `fillExtRep` fails.
+    let res = Block.verifyHeaders dummyProtocolMagic Nothing (NewestFirst $ map (either (error . ("fillExtRep: " <>)) identity . fillExtRep) $ headers)
+    in res === VerSuccess

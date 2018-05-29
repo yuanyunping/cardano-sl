@@ -59,11 +59,11 @@ import           Formatting (bprint, build, hex, sformat, shown, (%))
 import qualified Network.Broadcast.OutboundQueue as OQ
 import           Network.Transport (EndPointAddress (..))
 import qualified Node as N
-import           Node.Message.Class (Message (..), MessageCode)
+import           Node.Message.Class (Message (..), MessageCode, Serializable,
+                     Serializable')
 import           Serokell.Util.Base16 (base16F)
 import           Serokell.Util.Text (listJson, mapJson)
 
-import           Pos.Binary.Class (Bi)
 import           Pos.Binary.Limit (Limit (..))
 import           Pos.Core.Update (BlockVersion)
 import           Pos.Infra.Communication.BiP (BiP)
@@ -145,8 +145,10 @@ waitForConversations = sequenceA
 -- this in- and out-spec motif. See TW-152.
 data Conversation t where
     Conversation
-        :: ( Bi snd, Message snd, Bi rcv, Message rcv )
-        => (N.ConversationActions snd rcv -> IO t)
+        :: (Message snd, Message rcv)
+        => Serializable' BiP IO snd
+        -> Serializable attr BiP IO rcv' rcv
+        -> (N.ConversationActions snd rcv -> IO t)
         -> Conversation t
 
 newtype PeerId = PeerId ByteString
@@ -240,7 +242,7 @@ data ListenerSpec = ListenerSpec
 
 -- | The MessageCode that the listener responds to.
 listenerMessageCode :: Listener -> MessageCode
-listenerMessageCode (N.Listener (_ :: PeerData -> NodeId -> N.ConversationActions snd rcv -> IO ())) =
+listenerMessageCode (N.Listener _ _ (_ :: PeerData -> NodeId -> N.ConversationActions snd rcv -> IO ())) =
     messageCode (Proxy @rcv)
 
 newtype InSpecs = InSpecs HandlerSpecs

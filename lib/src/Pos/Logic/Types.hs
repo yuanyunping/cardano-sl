@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
@@ -17,6 +18,7 @@ import           Data.Tagged (Tagged)
 import           Pipes (Producer)
 import           Pipes.Internal (unsafeHoist)
 
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import           Pos.Block.Logic (GetHashesRangeError,
                      GetHeadersFromManyToError)
 import           Pos.Communication (NodeId)
@@ -40,7 +42,7 @@ data Logic m = Logic
     , getSerializedBlock :: HeaderHash -> m (Maybe SerializedBlock)
     , streamBlocks       :: HeaderHash -> Producer SerializedBlock m ()
       -- | Get a block header.
-    , getBlockHeader     :: HeaderHash -> m (Maybe BlockHeader)
+    , getBlockHeader     :: HeaderHash -> m (Maybe (BlockHeader 'AttrNone))
       -- TODO CSL-2089 use conduits in this and the following methods
       -- | Retrieve block header hashes from specified interval.
     , getHashesRange     :: Maybe Word -- ^ Optional limit on how many to bring in.
@@ -53,23 +55,23 @@ data Logic m = Logic
     , getBlockHeaders    :: Maybe Word -- ^ Optional limit on how many to bring in.
                          -> NonEmpty HeaderHash
                          -> Maybe HeaderHash
-                         -> m (Either GetHeadersFromManyToError (NewestFirst NE BlockHeader))
+                         -> m (Either GetHeadersFromManyToError (NewestFirst NE (BlockHeader 'AttrNone)))
       -- | Compute LCA with the main chain.
       -- FIXME rename.
       -- In fact, it computes the suffix of the input list such that all of them
       -- are not in the current main chain (hazards w.r.t. DB consistency
       -- obviously in play depending on the implementation...).
-    , getLcaMainChain    :: OldestFirst [] BlockHeader -> m (OldestFirst [] BlockHeader)
+    , getLcaMainChain    :: forall attr. OldestFirst [] (BlockHeader attr) -> m (OldestFirst [] (BlockHeader attr))
       -- | Get the current tip of chain.
-    , getTip             :: m Block
+    , getTip             :: m (Block 'AttrNone)
       -- | Cheaper version of 'headerHash <$> getTip'.
-    , getTipHeader       :: m BlockHeader
+    , getTipHeader       :: m (BlockHeader 'AttrNone)
       -- | Get state of last adopted BlockVersion. Related to update system.
     , getAdoptedBVData   :: m BlockVersionData
 
       -- | Give a block header to the logic layer.
       -- NodeId is needed for first iteration, but will be removed later.
-    , postBlockHeader    :: BlockHeader -> NodeId -> m ()
+    , postBlockHeader    :: (BlockHeader 'AttrExtRep) -> NodeId -> m ()
 
       -- | Tx, update, ssc...
       -- Common pattern is:

@@ -12,7 +12,9 @@ module Pos.Core.Block.Union.Types
        , _BlockHeaderMain
        , eitherBlockHeader
        , choosingBlockHeader
+       , genericBlockHeaderDecoderAttr
        , Block
+       , blockDecoderAttr
 
        -- * GenesisBlockchain
        , GenesisBlockchain
@@ -55,19 +57,21 @@ import           Codec.CBOR.Decoding (decodeWordCanonical)
 import           Codec.CBOR.Encoding (encodeWord)
 import           Control.Lens (Getter, LensLike', choosing, makePrisms, to)
 
-import           Data.SafeCopy (SafeCopy (..), contain, safeGet, safePut)
-import qualified Data.Serialize as Cereal
 import           Crypto.Hash (digestFromByteString)
+import           Data.Aeson (ToJSON (..))
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import           Data.SafeCopy (SafeCopy (..), contain, safeGet, safePut)
+import qualified Data.Serialize as Cereal
 import qualified Data.Text.Buildable as Buildable
 import qualified Data.Text.Lazy.Builder as Builder
-import           Formatting (Format, bprint, build, fitLeft, later, (%), (%.))
+import           Formatting (Format, bprint, build, fitLeft, later, sformat,
+                     (%), (%.))
 import           Universum
 
-import           Pos.Binary.Class (Bi (..), BiExtRep (..), DecoderAttrKind (..),
-                     DecoderAttr (..), decodeListLenCanonicalOf,
+import           Pos.Binary.Class (Bi (..), BiExtRep (..), DecoderAttr (..),
+                     DecoderAttrKind (..), decodeListLenCanonicalOf,
                      deserializeOrFail, encodeListLen, enforceSize)
 import           Pos.Core.Block.Blockchain (Blockchain (..), GenericBlock (..),
                      GenericBlockHeader (..), gbHeader, gbhPrevBlock)
@@ -103,9 +107,9 @@ data GenesisBlockchain
 type GenesisBlockHeader attr = GenericBlockHeader GenesisBlockchain attr
 
 -- | Genesis block parametrized by 'GenesisBlockchain'.
-type GenesisBlock attr = GenericBlock GenesisBlockchain attr
+type GenesisBlock (attr :: DecoderAttrKind) = GenericBlock GenesisBlockchain attr
 
-instance Blockchain GenesisBlockchain attr where
+instance Blockchain GenesisBlockchain (attr :: DecoderAttrKind) where
     type BodyProof GenesisBlockchain = GenesisProof
     type ConsensusData GenesisBlockchain = GenesisConsensusData
     type BBlockHeader GenesisBlockchain attr = Hash (BlockHeader attr)
@@ -128,11 +132,11 @@ instance Blockchain GenesisBlockchain attr where
 data MainBlockchain
 
 -- | Header of generic main block.
-type MainBlockHeader attr = GenericBlockHeader MainBlockchain attr
+type MainBlockHeader (attr :: DecoderAttrKind) = GenericBlockHeader MainBlockchain attr
 
 -- | MainBlock is a block with transactions and MPC messages. It's the
 -- main part of our consensus algorithm.
-type MainBlock attr = GenericBlock MainBlockchain attr
+type MainBlock (attr :: DecoderAttrKind) = GenericBlock MainBlockchain attr
 
 -- | Signature of the block. Can be either regular signature from the
 -- issuer or delegated signature having a constraint on epoch indices
@@ -275,7 +279,13 @@ instance SafeCopy MainConsensusData where
 ----------------------------------------------------------------------------
 
 -- | Either header of ordinary main block or genesis block.
-data BlockHeader attr
+--
+-- TODO: It is `BlockHeader` that should carry `DecoderAttr` info; but the
+-- current design (which  I think is wrong) is that we compute hash from
+-- GenesisBlockHeader wrapping it with `BlockHeaderGenesis` or
+-- `BlockHeaderMain`.  But the changes to do this properly would require
+-- a polymorphic `GenericBlock` that could take different header types.
+data BlockHeader (attr :: DecoderAttrKind)
     = BlockHeaderGenesis (GenesisBlockHeader attr)
     | BlockHeaderMain (MainBlockHeader attr)
 
@@ -335,8 +345,16 @@ choosingBlockHeader onGenesis onMain f = \case
     BlockHeaderGenesis bh -> BlockHeaderGenesis <$> onGenesis f bh
     BlockHeaderMain bh -> BlockHeaderMain <$> onMain f bh
 
+-- |
+-- Get `DecoderAttr` of `GenericBlockHeader` from a `BlockHeader`.
+genericBlockHeaderDecoderAttr :: BlockHeader attr -> DecoderAttr attr
+genericBlockHeaderDecoderAttr = eitherBlockHeader _gbhDecoderAttr _gbhDecoderAttr
+
 -- | Block.
 type Block (attr :: DecoderAttrKind) = Either (GenesisBlock attr) (MainBlock attr)
+
+blockDecoderAttr :: Block attr -> DecoderAttr attr
+blockDecoderAttr = either _gbDecoderAttr _gbDecoderAttr
 
 ----------------------------------------------------------------------------
 -- HeaderHash
@@ -369,9 +387,13 @@ instance SafeCopy HeaderHash where
 
     getCopy = contain $ do
         bs <- safeGet
-        toCerealError $ case deserializeOrFail @(Hash (BlockHeader 'AttrNone)) bs of
+        toCerealError $ case deserializeOrFail @(Hash (BlockHeader 'AttrNone)) decode bs of
             Left (err, _) -> Left $ "getCopy@" <> label (Proxy @(Hash (BlockHeader 'AttrNone))) <> ": " <> show err
             Right (x, _) -> Right (anyHeaderHash x)
+
+-- Instance compatible with `AbstractHash` `ToJSON` instance.
+instance ToJSON HeaderHash where
+    toJSON = toJSON . sformat headerHashF
 
 -- | Specialized formatter for 'HeaderHash'.
 headerHashHexF :: Format r (HeaderHash -> r)

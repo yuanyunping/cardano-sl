@@ -1,4 +1,5 @@
 {-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE DataKinds      #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -14,9 +15,10 @@ import           Universum
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 
-import           Pos.Binary.Class (Bi (..), Cons (..), Field (..),
-                     decodeKnownCborDataItem, decodeUnknownCborDataItem,
-                     deriveSimpleBi, encodeKnownCborDataItem, encodeListLen,
+import           Pos.Binary.Class (Bi (..), Cons (..), DecoderAttrKind (..),
+                     Field (..), decodeKnownCborDataItem,
+                     decodeUnknownCborDataItem, deriveSimpleBi,
+                     encodeKnownCborDataItem, encodeListLen,
                      encodeUnknownCborDataItem, enforceSize, serialize,
                      serialize')
 import           Pos.Block.BHelpers ()
@@ -41,7 +43,7 @@ import           Pos.Util.Util (cborError)
 -- ```
 serializeMsgSerializedBlock :: MsgSerializedBlock -> BS.ByteString
 serializeMsgSerializedBlock (MsgSerializedBlock b)   = "\x82\x0" <> unSerialized b
-serializeMsgSerializedBlock (MsgNoSerializedBlock t) = serialize' (MsgNoBlock t)
+serializeMsgSerializedBlock (MsgNoSerializedBlock t) = serialize' (MsgNoBlock t :: MsgBlock 'AttrNone)
 
 -- Serialize `MsgSerializedBlock` with the property
 -- ```
@@ -49,7 +51,7 @@ serializeMsgSerializedBlock (MsgNoSerializedBlock t) = serialize' (MsgNoBlock t)
 -- ```
 serializeMsgStreamBlock :: MsgSerializedBlock -> LBS.ByteString
 serializeMsgStreamBlock (MsgSerializedBlock b)   = "\x82\x0" <> LBS.fromStrict (unSerialized b)
-serializeMsgStreamBlock (MsgNoSerializedBlock t) = serialize (MsgStreamNoBlock t)
+serializeMsgStreamBlock (MsgNoSerializedBlock t) = serialize (MsgStreamNoBlock t :: MsgStreamBlock 'AttrNone)
 
 -- deriveSimpleBi is not happy with constructors without arguments
 -- "fake" deriving as per `MempoolMsg`.

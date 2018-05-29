@@ -26,14 +26,13 @@ import           Formatting (bprint, build, (%))
 import           Pipes (Producer, yield)
 import           Serokell.Util.Text (listJson)
 
-import           Pos.Binary.Class (serialize')
+import           Pos.Binary.Class (DecoderAttrKind (..), serialize')
 import           Pos.Block.Slog.Types (LastBlkSlots, noLastBlkSlots)
 import           Pos.Core (FlatSlotId, HasCoreConfiguration, HasHeaderHash,
-                     HasProtocolConstants, HeaderHash, genesisHash, headerHash,
-                     slotIdF, unflattenSlotId)
+                     HasProtocolConstants, HeaderHash, genesisHeaderHash,
+                     headerHash, shortHeaderHashF, slotIdF, unflattenSlotId)
 import           Pos.Core.Block (Block, BlockHeader)
 import           Pos.Core.Chrono (OldestFirst (..))
-import           Pos.Crypto (shortHashF)
 import           Pos.DB (DBError (..), MonadDB, MonadDBRead (..),
                      RocksBatchOp (..), dbSerializeValue, getHeader)
 import           Pos.DB.Class (MonadBlockDBRead, SerializedBlock, getBlock)
@@ -67,7 +66,7 @@ getLastSlots =
 -- | Retrieves first genesis block hash.
 getFirstGenesisBlockHash :: MonadDBRead m => m HeaderHash
 getFirstGenesisBlockHash =
-    resolveForwardLink (genesisHash :: HeaderHash) >>=
+    resolveForwardLink genesisHeaderHash >>=
     maybeThrow (DBMalformed "Can't retrieve genesis block, maybe db is not initialized?")
 
 ----------------------------------------------------------------------------
@@ -89,11 +88,11 @@ data BlockExtraOp
 
 instance HasProtocolConstants => Buildable BlockExtraOp where
     build (AddForwardLink from to) =
-        bprint ("AddForwardLink from "%shortHashF%" to "%shortHashF) from to
+        bprint ("AddForwardLink from "%shortHeaderHashF%" to "%shortHeaderHashF) from to
     build (RemoveForwardLink from) =
-        bprint ("RemoveForwardLink from "%shortHashF) from
+        bprint ("RemoveForwardLink from "%shortHeaderHashF) from
     build (SetInMainChain flag h) =
-        bprint ("SetInMainChain for "%shortHashF%": "%build) h flag
+        bprint ("SetInMainChain for "%shortHeaderHashF%": "%build) h flag
     build (SetLastSlots slots) =
         bprint ("SetLastSlots: "%listJson)
         (map (bprint slotIdF . unflattenSlotId) slots)
@@ -187,16 +186,16 @@ loadHashesUpWhile = loadUpWhile (pure . Just)
 loadHeadersUpWhile
     :: (MonadBlockDBRead m, HasHeaderHash a)
     => a
-    -> (BlockHeader -> Int -> Bool)
-    -> m (OldestFirst [] BlockHeader)
+    -> (BlockHeader 'AttrNone -> Int -> Bool)
+    -> m (OldestFirst [] (BlockHeader 'AttrNone))
 loadHeadersUpWhile = loadUpWhile getHeader
 
 -- | Returns blocks loaded up.
 loadBlocksUpWhile
     :: (MonadBlockDBRead m, HasHeaderHash a)
     => a
-    -> (Block -> Int -> Bool)
-    -> m (OldestFirst [] Block)
+    -> ((Block 'AttrNone) -> Int -> Bool)
+    -> m (OldestFirst [] (Block 'AttrNone))
 loadBlocksUpWhile = loadUpWhile getBlock
 
 ----------------------------------------------------------------------------
@@ -206,7 +205,7 @@ loadBlocksUpWhile = loadUpWhile getBlock
 initGStateBlockExtra :: MonadDB m => HeaderHash -> m ()
 initGStateBlockExtra firstGenesisHash = do
     gsPutBi (mainChainKey firstGenesisHash) ()
-    gsPutBi (forwardLinkKey genesisHash) firstGenesisHash
+    gsPutBi (forwardLinkKey genesisHeaderHash) firstGenesisHash
     gsPutBi lastSlotsKey noLastBlkSlots
 
 ----------------------------------------------------------------------------

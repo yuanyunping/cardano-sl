@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Test.Pos.Block.CborSpec
@@ -9,6 +10,7 @@ import           Universum
 import           Test.Hspec (Spec, describe)
 import           Test.Hspec.QuickCheck (modifyMaxSuccess)
 
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import qualified Pos.Block.Network as Core
 import qualified Pos.Block.Types as Block
 import qualified Pos.Core.Block as Core
@@ -34,9 +36,9 @@ spec = withGenesisSpec 0 defaultCoreConfiguration $ \_ ->
         describe "Block types defined in the core package" $ do
               modifyMaxSuccess (min 10) $ describe "GenericBlockHeader" $ do
                   describe "GenesisBlockHeader" $ do
-                      binaryTest @Core.GenesisBlockHeader
+                      binaryTest @(Core.GenesisBlockHeader 'AttrNone)
                   describe "MainBlockHeader" $ do
-                      binaryTest @Core.MainBlockHeader
+                      binaryTest @(Core.MainBlockHeader 'AttrNone)
               describe "GenesisBlockchain" $ do
                   describe "BodyProof" $ do
                       binaryTest @Core.GenesisExtraHeaderData
@@ -70,7 +72,7 @@ spec = withGenesisSpec 0 defaultCoreConfiguration $ \_ ->
                 describe "Block network types" $ modifyMaxSuccess (min 10) $ do
                     binaryTest @Core.MsgGetHeaders
                     binaryTest @Core.MsgGetBlocks
-                    binaryTest @Core.MsgHeaders
-                    binaryTest @Core.MsgBlock
+                    binaryTest @(Core.MsgHeaders 'AttrNone)
+                    binaryTest @(Core.MsgBlock 'AttrNone)
                     binaryTest @Core.MsgStream
-                    binaryTest @Core.MsgStreamBlock
+                    binaryTest @(Core.MsgStreamBlock 'AttrNone)

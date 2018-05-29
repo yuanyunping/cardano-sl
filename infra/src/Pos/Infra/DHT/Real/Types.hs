@@ -15,18 +15,18 @@ import           Control.Concurrent.STM (TVar)
 import qualified Network.Kademlia as K
 
 import           Data.Bifunctor (bimap)
-import           Pos.Binary.Class (deserializeOrFail', serialize')
+import           Pos.Binary.Class (Bi (..), deserializeOrFail', serialize')
 import           Pos.Infra.DHT.Model.Types (DHTData, DHTKey)
 import           Pos.Infra.Util.TimeWarp (NetworkAddress)
 
 
 instance K.Serialize DHTData where
     toBS   = serialize'
-    fromBS = bimap (show . fst) identity . deserializeOrFail'
+    fromBS = bimap (show . fst) identity . deserializeOrFail' decode
 
 instance K.Serialize DHTKey where
     toBS   = serialize'
-    fromBS = bimap (show . fst) identity . deserializeOrFail'
+    fromBS = bimap (show . fst) identity . deserializeOrFail' decode
 
 type DHTHandle = K.KademliaInstance DHTKey DHTData
 

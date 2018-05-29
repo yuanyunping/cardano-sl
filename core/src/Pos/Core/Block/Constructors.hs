@@ -21,7 +21,7 @@ module Pos.Core.Block.Constructors
 
 import           Universum
 
-import           Pos.Binary.Class (DecoderAttrKind (AttrNone), DecoderAttr (..))
+import           Pos.Binary.Class (DecoderAttr (..), DecoderAttrKind (AttrNone))
 import           Pos.Core.Block.Blockchain (GenericBlock (..), mkGenericHeader)
 import           Pos.Core.Block.Genesis (GenesisBody (..),
                      GenesisConsensusData (..), GenesisExtraBodyData (..),

@@ -25,8 +25,7 @@ import           Pos.Core.Block.Main.Types (MainBody (..),
 import           Pos.Core.Block.Union.Types (BlockHeader (..),
                      HasHeaderHash (..), HeaderHash, IsHeader,
                      IsMainHeader (..), MainBlock, MainBlockHeader,
-                     MainConsensusData (..), blockHeaderHash,
-                     headerHashHexF)
+                     MainConsensusData (..), blockHeaderHash, headerHashHexF)
 import           Pos.Core.Common (HasDifficulty (..))
 import           Pos.Core.Slotting (EpochOrSlot (..), HasEpochIndex (..),
                      HasEpochOrSlot (..), slotIdF)

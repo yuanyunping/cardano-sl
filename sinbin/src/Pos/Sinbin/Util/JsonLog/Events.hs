@@ -166,7 +166,7 @@ fromJLSlotIdUnsafe x = case fromJLSlotId x of
     Left  _ -> error "illegal slot id"
 
 -- | Return event of created block.
-jlCreatedBlock :: HasConfiguration => Block -> JLEvent
+jlCreatedBlock :: HasConfiguration => Block attr -> JLEvent
 jlCreatedBlock block = JLCreatedBlock $ JLBlock {..}
   where
     jlHash = showHeaderHash $ headerHash block
@@ -196,7 +196,7 @@ appendJL path ev = liftIO $ do
   LBS.appendFile path . encode $ JLTimedEvent (fromIntegral time) ev
 
 -- | Returns event of created 'Block'.
-jlAdoptedBlock :: Block -> JLEvent
+jlAdoptedBlock :: Block attr -> JLEvent
 jlAdoptedBlock = JLAdoptedBlock . showHeaderHash . headerHash
 
 jsonLogConfigFromHandle :: MonadIO m => Handle -> m JsonLogConfig

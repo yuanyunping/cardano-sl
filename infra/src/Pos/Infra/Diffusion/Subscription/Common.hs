@@ -37,6 +37,7 @@ import           System.Clock (Clock (Monotonic), TimeSpec, getTime, toNanoSecs)
 import           System.Wlog (Severity (..))
 
 import           Pos.Binary.Class (Bi)
+import           Pos.Infra.Communication.BiP (biSerIO)
 import           Pos.Infra.Communication.Listener (listenerConv)
 import           Pos.Infra.Communication.Protocol (Conversation (..),
                      ConversationActions (..), ListenerSpec, MkListeners,
@@ -227,8 +228,8 @@ subscriptionEstablish middle keepalive sendActions peer = withConnectionTo sendA
     \_peerData -> NE.fromList
         -- Sort conversations in descending order based on their version so that
         -- the highest available version of the conversation is picked.
-        [ Conversation (convMsgSubscribe middle keepalive)
-        , Conversation (convMsgSubscribe1 middle)
+        [ Conversation biSerIO biSerIO (convMsgSubscribe middle keepalive)
+        , Conversation biSerIO biSerIO (convMsgSubscribe1 middle)
         ]
 
 convMsgSubscribe
@@ -259,7 +260,7 @@ subscriptionListener
     -> OQ.OutboundQ pack NodeId Bucket
     -> NodeType
     -> (ListenerSpec, OutSpecs)
-subscriptionListener logTrace oq nodeType = listenerConv @Void logTrace oq $ \__ourVerInfo nodeId conv -> do
+subscriptionListener logTrace oq nodeType = listenerConv @Void logTrace biSerIO biSerIO oq $ \__ourVerInfo nodeId conv -> do
     recvLimited conv mlMsgSubscribe >>= \case
         Just MsgSubscribe -> do
             let peers = simplePeers [(nodeType, nodeId)]
@@ -291,7 +292,7 @@ subscriptionListener1
     -> OQ.OutboundQ pack NodeId Bucket
     -> NodeType
     -> (ListenerSpec, OutSpecs)
-subscriptionListener1 logTrace oq nodeType = listenerConv @Void logTrace oq $ \_ourVerInfo nodeId conv -> do
+subscriptionListener1 logTrace oq nodeType = listenerConv @Void logTrace biSerIO biSerIO oq $ \_ourVerInfo nodeId conv -> do
     mbMsg <- recvLimited conv mlMsgSubscribe1
     whenJust mbMsg $ \MsgSubscribe1 -> do
       let peers = simplePeers [(nodeType, nodeId)]

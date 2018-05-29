@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds       #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -37,22 +38,22 @@ import           Test.QuickCheck.Arbitrary.Generic (genericArbitrary,
                      genericShrink)
 import           Test.QuickCheck.Instances ()
 
-import           Pos.Binary.Class (Bi)
+import           Pos.Binary.Class (Bi, DecoderAttrKind (..))
 import           Pos.Core (AddrAttributes (..), AddrSpendingData (..),
                      AddrStakeDistribution (..), AddrType (..), Address (..),
                      Address' (..), ApplicationName (..), BlockCount (..),
-                     BlockVersion (..), BlockVersionData (..),
+                     BlockHeader, BlockVersion (..), BlockVersionData (..),
                      ChainDifficulty (..), Coeff (..), Coin (..),
                      CoinPortion (..), EpochIndex (..), EpochOrSlot (..),
-                     LocalSlotIndex (..), Script (..), SharedSeed (..),
-                     SlotCount (..), SlotId (..), SoftforkRule (..),
-                     SoftwareVersion (..), StakeholderId, TimeDiff (..),
-                     Timestamp (..), TxFeePolicy (..), TxSizeLinear (..),
-                     VssCertificate, applicationNameMaxLength,
-                     coinPortionDenominator, coinToInteger, divCoin,
-                     localSlotIndexMaxBound, localSlotIndexMinBound,
-                     makeAddress, maxCoinVal, mkCoin, mkLocalSlotIndex,
-                     mkMultiKeyDistr, mkVssCertificate,
+                     HeaderHash, LocalSlotIndex (..), Script (..),
+                     SharedSeed (..), SlotCount (..), SlotId (..),
+                     SoftforkRule (..), SoftwareVersion (..), StakeholderId,
+                     TimeDiff (..), Timestamp (..), TxFeePolicy (..),
+                     TxSizeLinear (..), VssCertificate, anyHeaderHash,
+                     applicationNameMaxLength, coinPortionDenominator,
+                     coinToInteger, divCoin, localSlotIndexMaxBound,
+                     localSlotIndexMinBound, makeAddress, maxCoinVal, mkCoin,
+                     mkLocalSlotIndex, mkMultiKeyDistr, mkVssCertificate,
                      mkVssCertificatesMapLossy, unsafeCoinPortionFromDouble,
                      unsafeGetCoin, unsafeSubCoin)
 import           Pos.Core.Configuration (HasGenesisBlockVersionData,
@@ -62,7 +63,7 @@ import           Pos.Core.Delegation (HeavyDlgIndex (..), LightDlgIndices (..))
 import qualified Pos.Core.Genesis as G
 import           Pos.Core.ProtocolConstants (ProtocolConstants (..),
                      VssMaxTTL (..), VssMinTTL (..))
-import           Pos.Crypto (ProtocolMagic, createPsk, toPublic)
+import           Pos.Crypto (Hash, ProtocolMagic, createPsk, toPublic)
 import           Pos.Data.Attributes (Attributes (..), UnparsedFields (..))
 import           Pos.Merkle (MerkleTree, mkMerkleTree)
 import           Pos.Util.Util (leftToPanic)
@@ -70,7 +71,8 @@ import           Pos.Util.Util (leftToPanic)
 import           Test.Pos.Crypto.Arbitrary ()
 import           Test.Pos.Crypto.Dummy (dummyProtocolMagic)
 import           Test.Pos.Util.Orphans ()
-import           Test.Pos.Util.QuickCheck.Arbitrary (nonrepeating)
+import           Test.Pos.Util.QuickCheck.Arbitrary (arbitraryUnsafe,
+                     nonrepeating)
 
 
 {- NOTE: Deriving an 'Arbitrary' instance
@@ -575,6 +577,17 @@ instance (HasProtocolConstants) => Arbitrary G.GenesisData where
             True
         hasKnownFeePolicy _ = False
         arbitraryVssCerts = G.GenesisVssCertificatesMap . mkVssCertificatesMapLossy <$> arbitrary
+
+----------------------------------------------------------------------------
+-- Arbitrary types from 'Pos.Core.Block
+----------------------------------------------------------------------------
+
+instance Arbitrary HeaderHash where
+    arbitrary = anyHeaderHash <$> hh
+        where
+            hh :: Gen (Hash (BlockHeader 'AttrNone))
+            hh = arbitraryUnsafe
+
 ----------------------------------------------------------------------------
 -- Arbitrary miscellaneous types
 ----------------------------------------------------------------------------

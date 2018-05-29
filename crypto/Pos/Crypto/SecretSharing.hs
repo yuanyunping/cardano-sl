@@ -383,7 +383,7 @@ checkLenImpl action name expectedLen len
 #define Ser(B, Bytes, Name) \
   instance AsBinaryClass B where {\
     asBinary = AsBinary . checkLen "asBinary" Name Bytes . serialize' ;\
-    fromBinary = decodeFull' . checkLen "fromBinary" Name Bytes . getAsBinary }; \
+    fromBinary = decodeFull' decode label . checkLen "fromBinary" Name Bytes . getAsBinary }; \
 
 Ser(VssPublicKey, vssPublicKeyBytes, "VssPublicKey")
 Ser(Secret, secretBytes, "Secret")

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds       #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE RankNTypes      #-}
 
@@ -23,6 +24,7 @@ import           Test.QuickCheck.Gen (Gen (MkGen))
 import           Test.QuickCheck.Monadic (assert, pick, pre, run)
 import           Test.QuickCheck.Random (QCGen)
 
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import           Pos.Block.Logic (getVerifyBlocksContext', verifyAndApplyBlocks,
                      verifyBlocksPrefix)
 import           Pos.Block.Types (Blund)
@@ -134,7 +136,7 @@ verifyAndApplyBlocksSpec :: HasStaticConfigurations => Spec
 verifyAndApplyBlocksSpec =
     blockPropertySpec applyByOneOrAllAtOnceDesc (applyByOneOrAllAtOnce applier)
   where
-    applier :: HasConfiguration => OldestFirst NE Blund -> BlockTestMode ()
+    applier :: HasConfiguration => OldestFirst NE (Blund 'AttrNone) -> BlockTestMode ()
     applier blunds = do
         let blocks = map fst blunds
         ctx <- getVerifyBlocksContext' (lastSlot . IL.toList $ blocks)
@@ -170,7 +172,7 @@ applyBlocksSpec = pass
 
 applyByOneOrAllAtOnce
     :: HasConfigurations
-    => (OldestFirst NE Blund -> BlockTestMode ())
+    => (OldestFirst NE (Blund 'AttrNone) -> BlockTestMode ())
     -> BlockProperty ()
 applyByOneOrAllAtOnce applier = do
     bpGoToArbitraryState

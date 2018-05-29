@@ -30,7 +30,7 @@ import qualified Network.Kademlia.Tree as K (toView)
 import           Serokell.Util (listJson)
 import           System.Directory (doesFileExist)
 
-import           Pos.Binary.Class (decodeFull)
+import           Pos.Binary.Class (Bi (..), decodeFull)
 import           Pos.Infra.Binary.DHTModel ()
 import           Pos.Infra.DHT.Constants (enhancedMessageBroadcast,
                      enhancedMessageTimeout)
@@ -72,7 +72,7 @@ startDHTInstance logTrace kconf@KademliaParams {..} defaultBind = do
             traceWith logTrace (Info, "Restoring DHT Instance from snapshot")
             catchErrors $
                 createKademliaFromSnapshot bindAddr extAddr kademliaConfig =<<
-                (either error identity . decodeFull) <$> BS.readFile dumpFile
+                (either error identity . decodeFull decode label) <$> BS.readFile dumpFile
         Nothing -> do
             traceWith logTrace (Info, "Creating new DHT instance")
             catchErrors $ createKademlia bindAddr extAddr kdiKey kademliaConfig

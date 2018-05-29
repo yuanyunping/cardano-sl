@@ -10,6 +10,7 @@ module Pos.DB.DB
 
 import           Universum
 
+import           Pos.Binary.Class (DecoderAttr (..))
 import           Pos.Core (BlockVersionData, GenesisHash (..), SlotCount,
                      genesisHash, headerHash)
 import           Pos.Core.Block.Constructors (genesisBlock0)
@@ -34,7 +35,7 @@ initNodeDBs pm epochSlots = do
     prepareGStateDB initialTip
     prepareLrcDB epochSlots
   where
-    gb = genesisBlock0 pm (GenesisHash genesisHash) (genesisLeaders epochSlots)
+    gb = genesisBlock0 pm (GenesisHash genesisHash) (genesisLeaders epochSlots) DecoderAttrNone DecoderAttrNone
 
 ----------------------------------------------------------------------------
 -- MonadGState instance

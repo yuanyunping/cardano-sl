@@ -40,6 +40,7 @@ import           Universum
 
 import           Pos.Binary.Class (Bi (..))
 import           Pos.Binary.Limit (Limit, mlEither)
+import           Pos.Infra.Communication.BiP (biSerIO)
 import           Pos.Infra.Communication.Limits.Instances (mlDataMsg, mlInvMsg,
                      mlMempoolMsg, mlReqMsg, mlResMsg)
 import           Pos.Infra.Communication.Listener (listenerConv)
@@ -81,7 +82,7 @@ handleReqL
     -> OQ.OutboundQ pack NodeId Bucket
     -> (NodeId -> key -> IO (Maybe contents))
     -> (ListenerSpec, OutSpecs)
-handleReqL logTrace oq handleReq = listenerConv logTrace oq $ \__ourVerInfo nodeId conv ->
+handleReqL logTrace oq handleReq = listenerConv logTrace biSerIO biSerIO oq $ \__ourVerInfo nodeId conv ->
     let handlingLoop = do
             mbMsg <- recvLimited conv mlReqMsg
             case mbMsg of
@@ -110,7 +111,7 @@ handleMempoolL
     -> MempoolParams
     -> [(ListenerSpec, OutSpecs)]
 handleMempoolL _ _ NoMempool = []
-handleMempoolL logTrace oq (KeyMempool tagP handleMempool) = pure $ listenerConv logTrace oq $
+handleMempoolL logTrace oq (KeyMempool tagP handleMempool) = pure $ listenerConv logTrace biSerIO biSerIO oq $
     \__ourVerInfo __nodeId conv -> do
         mbMsg <- recvLimited conv mlMempoolMsg
         whenJust mbMsg $ \msg@MempoolMsg -> do
@@ -140,7 +141,7 @@ handleDataOnlyL
     -> IO (Limit contents)
     -> (NodeId -> contents -> IO Bool)
     -> (ListenerSpec, OutSpecs)
-handleDataOnlyL logTrace oq enqueue mkMsg mkLimit handleData = listenerConv logTrace oq $ \__ourVerInfo nodeId conv ->
+handleDataOnlyL logTrace oq enqueue mkMsg mkLimit handleData = listenerConv logTrace biSerIO biSerIO oq $ \__ourVerInfo nodeId conv ->
     -- First binding is to inform GHC that the send type is Void.
     let msg :: Msg
         msg = mkMsg (OriginForward nodeId)
@@ -207,12 +208,12 @@ propagateData logTrace enqueue pm = waitForDequeues <$> case pm of
         traceWith logTrace (Debug, sformat
             ("Propagation data with key: "%build) key)
         enqueue msg $ \peer _ ->
-            pure $ Conversation $ (void <$> invReqDataFlowDo logTrace "propagation" key contents peer)
+            pure $ Conversation biSerIO biSerIO $ (void <$> invReqDataFlowDo logTrace "propagation" key contents peer)
     DataOnlyPM msg contents -> do
         traceWith logTrace (Debug, sformat
             ("Propagation data: "%build) contents)
         enqueue msg $ \__node _ ->
-            pure $ Conversation $ doHandler contents
+            pure $ Conversation biSerIO biSerIO $ doHandler contents
 
   where
 
@@ -283,7 +284,7 @@ invDataListener
   -> EnqueueMsg
   -> InvReqDataParams key contents
   -> (ListenerSpec, OutSpecs)
-invDataListener logTrace oq enqueue InvReqDataParams{..} = listenerConv logTrace oq $ \__ourVerInfo nodeId conv ->
+invDataListener logTrace oq enqueue InvReqDataParams{..} = listenerConv logTrace biSerIO biSerIO oq $ \__ourVerInfo nodeId conv ->
     let handlingLoop = do
             lim <- irdpMkLimit
             inv' <- recvLimited conv (mlEither mlInvMsg (mlDataMsg lim))
@@ -379,7 +380,7 @@ dataFlow
     => Trace IO (Severity, Text) -> Text -> EnqueueMsg -> Msg -> contents -> IO ()
 dataFlow logTrace what enqueue msg dt = handleAny handleE $ do
     its <- enqueue msg $
-        \_ _ -> pure $ Conversation $ \(conv :: ConversationActions (DataMsg contents) Void) ->
+        \_ _ -> pure $ Conversation biSerIO biSerIO $ \(conv :: ConversationActions (DataMsg contents) Void) ->
             send conv $ DataMsg dt
     void $ waitForConversations (waitForDequeues its)
   where
@@ -443,7 +444,7 @@ invReqDataFlow
     -> IO (Map NodeId (Either SomeException (Maybe (ResMsg key))))
 invReqDataFlow logTrace what enqueue msg key dt = handleAny handleE $ do
     its <- enqueue msg $
-        \addr _ -> pure $ Conversation $ invReqDataFlowDo logTrace what key dt addr
+        \addr _ -> pure $ Conversation biSerIO biSerIO $ invReqDataFlowDo logTrace what key dt addr
     waitForConversations (try <$> waitForDequeues its)
   where
     -- TODO: is this function really special that it wants to catch

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds    #-}
 {-# LANGUAGE RankNTypes   #-}
 
 module Test.Pos.Diffusion.BlockSpec
@@ -25,9 +26,10 @@ import           Node (NodeId)
 import qualified Node
 import           Pipes (each)
 
-import           Pos.Binary.Class (serialize')
+import           Pos.Binary.Class (BiExtRep (..), DecoderAttrKind (..),
+                     EitherExtRep (..), fillExtRep, serialize')
 import           Pos.Core (Block, BlockHeader, BlockVersion (..), HeaderHash,
-                     blockHeaderHash)
+                     anyHeaderHash, blockHeaderHash)
 import qualified Pos.Core as Core (getBlockHeader)
 import           Pos.Core.ProtocolConstants (ProtocolConstants (..))
 import           Pos.Crypto (ProtocolMagic (..))
@@ -72,6 +74,9 @@ blockVersion = BlockVersion
 someHash :: forall a . Hash a
 someHash = unsafeMkAbstractHash LBS.empty
 
+someHeaderHash :: HeaderHash
+someHeaderHash = anyHeaderHash someHash
+
 someHash' :: forall a . Int -> [Word8] -> Hash a
 someHash' 0 r = unsafeMkAbstractHash (LBS.pack r)
 someHash' x r =
@@ -79,29 +84,35 @@ someHash' x r =
         x' = x `shiftR` 8 in
     someHash' x' (v:r)
 
+someHeaderHash' :: Int -> [Word8] -> HeaderHash
+someHeaderHash' x r = anyHeaderHash $ someHash' x r
+
 withTransport :: (Transport -> IO t) -> IO t
 withTransport k = bracket InMemory.createTransport closeTransport k
 
 serverLogic
-    :: IORef [Block] -- ^ For streaming, so we can control how many are given.
-    -> Block
+    :: IORef [Block attr] -- ^ For streaming, so we can control how many are given.
+    -> Block attr
     -> NonEmpty HeaderHash
-    -> NonEmpty BlockHeader
+    -> NonEmpty (BlockHeader attr)
     -> Logic IO
 serverLogic streamIORef arbitraryBlock arbitraryHashes arbitraryHeaders = pureLogic
-    { getSerializedBlock = const (pure (Just $ serializedBlock arbitraryBlock))
-    , getBlockHeader = const (pure (Just (Core.getBlockHeader arbitraryBlock)))
+    { getSerializedBlock = const (pure (Just $ serializedBlock $ block))
+    , getBlockHeader = const (pure (Just (Core.getBlockHeader $ block)))
     , getHashesRange = \_ _ _ -> pure (Right (OldestFirst arbitraryHashes))
-    , getBlockHeaders = \_ _ _ -> pure (Right (NewestFirst arbitraryHeaders))
-    , getTip = pure arbitraryBlock
-    , getTipHeader = pure (Core.getBlockHeader arbitraryBlock)
+    , getBlockHeaders = \_ _ _ -> pure (Right (NewestFirst $ fmap forgetExtRep arbitraryHeaders))
+    , getTip = pure block
+    , getTipHeader = pure (Core.getBlockHeader block)
     , Logic.streamBlocks = \_ -> do
           bs <-  readIORef streamIORef
           each $ map serializedBlock bs
     }
+    where
+        block :: Block 'AttrNone
+        block = bimap forgetExtRep forgetExtRep arbitraryBlock
 
-serializedBlock :: Block -> SerializedBlock
-serializedBlock = Serialized . serialize'
+serializedBlock :: Block attr -> SerializedBlock
+serializedBlock = Serialized . serialize' . bimap forgetExtRep forgetExtRep
 
 -- Modify a pure logic layer so that the LCA computation (suffix not in the
 -- chain) always gives the entire thing. This makes the batch block requester
@@ -202,7 +213,7 @@ blockDownloadBatch serverAddress ~(blockHeader, checkpoints) client =  do
     !_ <- getBlocks client serverAddress blockHeader checkpoints
     return ()
 
-blockDownloadStream :: NodeId -> IORef Bool -> IORef [Block] -> (Int -> IO ()) -> (HeaderHash, [HeaderHash]) -> Diffusion IO-> IO ()
+blockDownloadStream :: NodeId -> IORef Bool -> IORef [Block 'AttrExtRep] -> (Int -> IO ()) -> (HeaderHash, [HeaderHash]) -> Diffusion IO-> IO ()
 blockDownloadStream serverAddress resultIORef streamIORef setStreamIORef ~(blockHeader, checkpoints) client = do
     setStreamIORef 1
     recvIORef <- newIORef []
@@ -217,17 +228,17 @@ blockDownloadStream serverAddress resultIORef streamIORef setStreamIORef ~(block
         modifyIORef' recvBlocks (\d -> blocks <> d)
 
 -- Generate a list of n+1 blocks
-generateBlocks :: Int -> NonEmpty Block
+generateBlocks :: Int -> NonEmpty (Block 'AttrNone)
 generateBlocks blocks =
   let root = doGenerateBlock 0 in
   root :| (doGenerateBlocks blocks)
   where
-    doGenerateBlock :: Int -> Block
+    doGenerateBlock :: Int -> Block 'AttrNone
     doGenerateBlock seed =
         let size = 4 in
         force $ Right (generateMainBlock protocolMagic protocolConstants seed size)
 
-    doGenerateBlocks :: Int -> [Block]
+    doGenerateBlocks :: Int -> [Block 'AttrNone]
     doGenerateBlocks 0 = []
     doGenerateBlocks x = do
         [doGenerateBlock x] ++ (doGenerateBlocks (x-1))
@@ -236,34 +247,38 @@ streamSimple :: Word32 -> Int -> IO Bool
 streamSimple streamWindow blocks = do
     streamIORef <- newIORef []
     resultIORef <- newIORef False
-    let arbitraryBlocks = generateBlocks (blocks - 1)
-        arbitraryHeaders = NE.map Core.getBlockHeader arbitraryBlocks
-        arbitraryHashes = NE.map blockHeaderHash arbitraryHeaders
-        !arbitraryBlock = NE.head arbitraryBlocks
-        tipHash = NE.head arbitraryHashes
-        checkpoints = [tipHash]
-        setStreamIORef = \_ -> writeIORef streamIORef $ NE.tail arbitraryBlocks
-    withTransport $ \transport ->
-        withServer transport (serverLogic streamIORef arbitraryBlock arbitraryHashes arbitraryHeaders) $ \serverAddress ->
-        withClient streamWindow transport clientLogic serverAddress $
-            liftIO . blockDownloadStream serverAddress resultIORef streamIORef setStreamIORef
-                (tipHash, checkpoints)
-    readIORef resultIORef
+    case traverse (fmap runEitherExtRep . fillExtRep . EitherExtRep) $ generateBlocks (blocks - 1) of
+        Left err -> error $ "fillExtRep failed: " <> err
+        Right arbitraryBlocks -> do
+            let arbitraryHeaders = NE.map Core.getBlockHeader arbitraryBlocks
+                arbitraryHashes = NE.map blockHeaderHash arbitraryHeaders
+                !arbitraryBlock = NE.head arbitraryBlocks
+                tipHash = NE.head arbitraryHashes
+                checkpoints = [tipHash]
+                setStreamIORef = \_ -> writeIORef streamIORef $ NE.tail arbitraryBlocks
+            withTransport $ \transport ->
+                withServer transport (serverLogic streamIORef arbitraryBlock arbitraryHashes arbitraryHeaders) $ \serverAddress ->
+                withClient streamWindow transport clientLogic serverAddress $
+                    liftIO . blockDownloadStream serverAddress resultIORef streamIORef setStreamIORef
+                        (tipHash, checkpoints)
+            readIORef resultIORef
 
 batchSimple :: Int -> IO Bool
 batchSimple blocks = do
     streamIORef <- newIORef []
-    let arbitraryBlocks = generateBlocks (blocks - 1)
-        arbitraryHeaders = NE.map Core.getBlockHeader arbitraryBlocks
-        arbitraryHashes = NE.map blockHeaderHash arbitraryHeaders
-        arbitraryBlock = NE.head arbitraryBlocks
-        !checkPoints = if blocks == 1 then [someHash]
-                                      else [someHash' (blocks + 1) []]
-    withTransport $ \transport ->
-        withServer transport (serverLogic streamIORef arbitraryBlock arbitraryHashes arbitraryHeaders) $ \serverAddress ->
-        withClient 2048 transport clientLogic serverAddress $
-            liftIO . blockDownloadBatch serverAddress (someHash, checkPoints)
-    return True
+    case traverse (fmap runEitherExtRep . fillExtRep . EitherExtRep) $ generateBlocks (blocks - 1) of
+        Left err -> error $ "fillExtRep failed: " <> err
+        Right arbitraryBlocks -> do
+            let arbitraryHeaders = NE.map Core.getBlockHeader arbitraryBlocks
+                arbitraryHashes = NE.map blockHeaderHash arbitraryHeaders
+                arbitraryBlock = NE.head arbitraryBlocks
+                !checkPoints = if blocks == 1 then [someHeaderHash]
+                                            else [someHeaderHash' (blocks + 1) []]
+            withTransport $ \transport ->
+                withServer transport (serverLogic streamIORef arbitraryBlock arbitraryHashes arbitraryHeaders) $ \serverAddress ->
+                withClient 2048 transport clientLogic serverAddress $
+                    liftIO . blockDownloadBatch serverAddress (someHeaderHash, checkPoints)
+            return True
 
 spec :: Spec
 spec = describe "Blockdownload" $ do
