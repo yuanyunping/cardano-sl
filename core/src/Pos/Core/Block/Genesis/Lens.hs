@@ -70,23 +70,23 @@ makeLenses 'GenesisConsensusData
 ----------------------------------------------------------------------------
 
 -- | Lens from 'GenesisBlockHeader' to 'HeaderHash' of its parent.
-genHeaderPrevBlock :: Lens' GenesisBlockHeader HeaderHash
+genHeaderPrevBlock :: Lens' (GenesisBlockHeader attr) HeaderHash
 genHeaderPrevBlock = gbhPrevBlock
 
 -- | Lens from 'GenesisBlockHeader' to 'GenesisProof'.
-genHeaderProof :: Lens' GenesisBlockHeader GenesisProof
+genHeaderProof :: Lens' (GenesisBlockHeader attr) GenesisProof
 genHeaderProof = gbhBodyProof
 
 -- | Lens from 'GenesisBlockHeader' to 'EpochIndex'.
-genHeaderEpoch :: Lens' GenesisBlockHeader EpochIndex
+genHeaderEpoch :: Lens' (GenesisBlockHeader attr) EpochIndex
 genHeaderEpoch = gbhConsensus . gcdEpoch
 
 -- | Lens from 'GenesisBlockHeader' to 'ChainDifficulty'.
-genHeaderDifficulty :: Lens' GenesisBlockHeader ChainDifficulty
+genHeaderDifficulty :: Lens' (GenesisBlockHeader attr) ChainDifficulty
 genHeaderDifficulty = gbhConsensus . gcdDifficulty
 
 -- | Lens from 'GenesisBlockHeader' to 'GenesisHeaderAttributes'.
-genHeaderAttributes :: Lens' GenesisBlockHeader GenesisHeaderAttributes
+genHeaderAttributes :: Lens' (GenesisBlockHeader attr) GenesisHeaderAttributes
 genHeaderAttributes = gbhExtra . gehAttributes
 
 ----------------------------------------------------------------------------
@@ -100,29 +100,29 @@ makeLenses 'GenesisBody
 ----------------------------------------------------------------------------
 
 -- | Lens from 'GenesisBlock' to 'HeaderHash' of its parent.
-genBlockPrevBlock :: Lens' GenesisBlock HeaderHash
+genBlockPrevBlock :: Lens' (GenesisBlock attr) HeaderHash
 genBlockPrevBlock = gbPrevBlock
 
 -- | Lens from 'GenesisBlock' to 'GenesisProof'.
-genBlockProof :: Lens' GenesisBlock GenesisProof
+genBlockProof :: Lens' (GenesisBlock attr) GenesisProof
 genBlockProof = gbHeader . genHeaderProof
 
 -- | Lens from 'GenesisBlock' to 'EpochIndex'.
-genBlockEpoch :: Lens' GenesisBlock EpochIndex
+genBlockEpoch :: Lens' (GenesisBlock attr) EpochIndex
 genBlockEpoch = gbHeader . genHeaderEpoch
 
 -- | Lens from 'GenesisBlock' to 'ChainDifficulty'.
-genBlockDifficulty :: Lens' GenesisBlock ChainDifficulty
+genBlockDifficulty :: Lens' (GenesisBlock attr) ChainDifficulty
 genBlockDifficulty = gbHeader . genHeaderDifficulty
 
 -- | Lens from 'GenesisBlock' to 'GenesisHeaderAttributes'.
-genBlockHeaderAttributes :: Lens' GenesisBlock GenesisHeaderAttributes
+genBlockHeaderAttributes :: Lens' (GenesisBlock attr) GenesisHeaderAttributes
 genBlockHeaderAttributes = gbHeader . genHeaderAttributes
 
 -- | Lens from 'GenesisBlock' to 'SlotLeaders'.
-genBlockLeaders :: Lens' GenesisBlock SlotLeaders
+genBlockLeaders :: Lens' (GenesisBlock attr) SlotLeaders
 genBlockLeaders = gbBody . gbLeaders
 
 -- | Lens from 'GenesisBlock' to 'GenesisBodyAttributes'.
-genBlockAttributes :: Lens' GenesisBlock GenesisBodyAttributes
+genBlockAttributes :: Lens' (GenesisBlock attr) GenesisBodyAttributes
 genBlockAttributes = gbExtra . gebAttributes

@@ -12,6 +12,7 @@ import qualified Data.Text.Buildable as Buildable
 import           Formatting (bprint, build, int, stext, (%))
 import           Serokell.Util (Color (Magenta), colorize, listJson)
 
+import           Pos.Binary.Class (Bi)
 import           Pos.Core.Block.Blockchain (GenericBlock (..),
                      GenericBlockHeader (..))
 import           Pos.Core.Block.Main.Lens (mainBlockBlockVersion,
@@ -25,21 +26,22 @@ import           Pos.Core.Block.Main.Types (MainBody (..),
 import           Pos.Core.Block.Union.Types (BlockHeader (..),
                      HasHeaderHash (..), HeaderHash, IsHeader,
                      IsMainHeader (..), MainBlock, MainBlockHeader,
-                     MainConsensusData (..), blockHeaderHash)
+                     MainConsensusData (..), blockHeaderHash,
+                     headerHashHexF)
 import           Pos.Core.Common (HasDifficulty (..))
 import           Pos.Core.Slotting (EpochOrSlot (..), HasEpochIndex (..),
                      HasEpochOrSlot (..), slotIdF)
 import           Pos.Core.Update (HasBlockVersion (..), HasSoftwareVersion (..))
-import           Pos.Crypto (hashHexF)
 
-instance NFData MainBlock
+instance NFData (MainBlock attr)
 
-instance Buildable MainBlockHeader where
+instance Bi (BlockHeader attr) =>
+         Buildable (MainBlockHeader attr) where
     build gbh@UnsafeGenericBlockHeader {..} =
         bprint
             ("MainBlockHeader:\n"%
-             "    hash: "%hashHexF%"\n"%
-             "    previous block: "%hashHexF%"\n"%
+             "    hash: "%headerHashHexF%"\n"%
+             "    previous block: "%headerHashHexF%"\n"%
              "    slot: "%slotIdF%"\n"%
              "    difficulty: "%int%"\n"%
              "    leader: "%build%"\n"%
@@ -58,7 +60,7 @@ instance Buildable MainBlockHeader where
         gbhHeaderHash = blockHeaderHash $ BlockHeaderMain gbh
         MainConsensusData {..} = _gbhConsensus
 
-instance Buildable MainBlock where
+instance Bi (BlockHeader attr) => Buildable (MainBlock attr) where
     build UnsafeGenericBlock {..} =
         bprint
             (stext%":\n"%
@@ -81,31 +83,33 @@ instance Buildable MainBlock where
         MainBody {..} = _gbBody
         txs = _gbBody ^. mbTxs
 
-instance HasEpochIndex MainBlock where
+instance HasEpochIndex (MainBlock attr) where
     epochIndexL = mainBlockSlot . epochIndexL
 
-instance HasEpochIndex MainBlockHeader where
+instance HasEpochIndex (MainBlockHeader attr) where
     epochIndexL = mainHeaderSlot . epochIndexL
 
-instance HasEpochOrSlot MainBlockHeader where
+instance HasEpochOrSlot (MainBlockHeader attr) where
     getEpochOrSlot = EpochOrSlot . Right . view mainHeaderSlot
 
-instance HasEpochOrSlot MainBlock where
+instance HasEpochOrSlot (MainBlock attr) where
     getEpochOrSlot = getEpochOrSlot . _gbHeader
 
-instance HasHeaderHash MainBlockHeader where
+instance Bi (BlockHeader attr) =>
+         HasHeaderHash (MainBlockHeader attr) where
     headerHash = blockHeaderHash . BlockHeaderMain
 
-instance HasHeaderHash MainBlock where
+instance Bi (BlockHeader attr) =>
+         HasHeaderHash (MainBlock attr) where
     headerHash = blockHeaderHash . BlockHeaderMain . _gbHeader
 
 instance HasDifficulty MainConsensusData where
     difficultyL = mcdDifficulty
 
-instance HasDifficulty MainBlockHeader where
+instance HasDifficulty (MainBlockHeader attr) where
     difficultyL = mainHeaderDifficulty
 
-instance HasDifficulty MainBlock where
+instance HasDifficulty (MainBlock attr) where
     difficultyL = mainBlockDifficulty
 
 instance HasBlockVersion MainExtraHeaderData where
@@ -114,20 +118,20 @@ instance HasBlockVersion MainExtraHeaderData where
 instance HasSoftwareVersion MainExtraHeaderData where
     softwareVersionL = mehSoftwareVersion
 
-instance HasBlockVersion MainBlock where
+instance HasBlockVersion (MainBlock attr) where
     blockVersionL = mainBlockBlockVersion
 
-instance HasSoftwareVersion MainBlock where
+instance HasSoftwareVersion (MainBlock attr) where
     softwareVersionL = mainBlockSoftwareVersion
 
-instance HasBlockVersion MainBlockHeader where
+instance HasBlockVersion (MainBlockHeader attr) where
     blockVersionL = mainHeaderBlockVersion
 
-instance HasSoftwareVersion MainBlockHeader where
+instance HasSoftwareVersion (MainBlockHeader attr) where
     softwareVersionL = mainHeaderSoftwareVersion
 
-instance IsHeader MainBlockHeader
+instance Bi (BlockHeader attr) => IsHeader (MainBlockHeader attr)
 
-instance IsMainHeader MainBlockHeader where
+instance Bi (BlockHeader attr) => IsMainHeader (MainBlockHeader attr) where
     headerSlotL = mainHeaderSlot
     headerLeaderKeyL = mainHeaderLeaderKey

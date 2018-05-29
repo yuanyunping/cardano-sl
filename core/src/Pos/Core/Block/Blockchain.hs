@@ -1,4 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE GADTs               #-}
 {-# LANGUAGE Rank2Types          #-}
 
 -- | This module contains some general definitions related to blocks
@@ -20,6 +22,7 @@ module Pos.Core.Block.Blockchain
        , gbhBodyProof
        , gbhConsensus
        , gbhExtra
+       , gbhDecoderAttr
 
        -- ** Block
        , gbBody
@@ -28,6 +31,8 @@ module Pos.Core.Block.Blockchain
        , gbPrevBlock
        , gbBodyProof
        , gbConsensus
+       , gbDecoderAttr
+       , gbHeaderDecoderAttr
        ) where
 
 import           Universum
@@ -37,7 +42,8 @@ import           Control.Monad.Except (MonadError (throwError))
 import           Data.SafeCopy (SafeCopy (..), contain, safeGet, safePut)
 import           Formatting (build, sformat, (%))
 
-import           Pos.Binary.Class (Bi (..), encodeListLen, enforceSize)
+import           Pos.Binary.Class (Bi (..), DecoderAttr (..), DecoderAttrKind (..), encodeListLen,
+                     enforceSize)
 import           Pos.Crypto (ProtocolMagic (..))
 
 ----------------------------------------------------------------------------
@@ -46,7 +52,7 @@ import           Pos.Crypto (ProtocolMagic (..))
 
 -- | Blockchain type class generalizes some functionality common for
 -- different blockchains.
-class Blockchain p where
+class Blockchain p (attr :: DecoderAttrKind) where
     -- | Proof of data stored in the body. Ensures immutability.
     type BodyProof p :: *
     -- | Consensus data which can be used to check consensus properties.
@@ -55,8 +61,8 @@ class Blockchain p where
     type ExtraHeaderData p :: *
     type ExtraHeaderData p = ()
     -- | Block header used in this blockchain.
-    type BBlockHeader p :: *
-    type BBlockHeader p = GenericBlockHeader p
+    type BBlockHeader p attr :: *
+    type BBlockHeader p attr = GenericBlockHeader p attr
     -- | Hash of 'BBlockHeader'. This is something like @Hash (BBlockHeader p)@.
     type BHeaderHash p :: *
 
@@ -66,8 +72,8 @@ class Blockchain p where
     type ExtraBodyData p :: *
     type ExtraBodyData p = ()
     -- | Block used in this blockchain.
-    type BBlock p :: *
-    type BBlock p = GenericBlock p
+    type BBlock p attr :: *
+    type BBlock p attr = GenericBlock p attr
 
     mkBodyProof :: Body p -> BodyProof p
 
@@ -77,7 +83,7 @@ class Blockchain p where
         (MonadError Text m, Buildable (BodyProof p), Eq (BodyProof p)) =>
         Body p -> BodyProof p -> m ()
     checkBodyProof body proof = do
-        let calculatedProof = mkBodyProof @p body
+        let calculatedProof = mkBodyProof @p @attr body
         let errMsg =
                 sformat ("Incorrect proof of body. "%
                          "Proof in header: "%build%
@@ -95,7 +101,7 @@ class Blockchain p where
 -- The constructor has `Unsafe' prefix in its name, because there in
 -- general there may be some invariants which must hold for the
 -- contents of header.
-data GenericBlockHeader b = UnsafeGenericBlockHeader
+data GenericBlockHeader b attr = UnsafeGenericBlockHeader
     { _gbhProtocolMagic :: !ProtocolMagic
       -- | Pointer to the header of the previous block.
     , _gbhPrevBlock     :: !(BHeaderHash b)
@@ -105,6 +111,8 @@ data GenericBlockHeader b = UnsafeGenericBlockHeader
       _gbhConsensus     :: !(ConsensusData b)
     , -- | Any extra data.
       _gbhExtra         :: !(ExtraHeaderData b)
+    , -- | Decodec attributes.
+      _gbhDecoderAttr   :: !(DecoderAttr attr)
     } deriving (Generic)
 
 deriving instance
@@ -112,14 +120,14 @@ deriving instance
     , Show (BodyProof b)
     , Show (ConsensusData b)
     , Show (ExtraHeaderData b)
-    ) => Show (GenericBlockHeader b)
+    ) => Show (GenericBlockHeader b attr)
 
 deriving instance
     ( Eq (BHeaderHash b)
     , Eq (BodyProof b)
     , Eq (ConsensusData b)
     , Eq (ExtraHeaderData b)
-    ) => Eq (GenericBlockHeader b)
+    ) => Eq (GenericBlockHeader b attr)
 
 instance ( Typeable b
          , Bi (BHeaderHash b)
@@ -127,7 +135,7 @@ instance ( Typeable b
          , Bi (ConsensusData b)
          , Bi (ExtraHeaderData b)
          ) =>
-         Bi (GenericBlockHeader b) where
+         Bi (GenericBlockHeader b 'AttrNone) where
     encode bh =  encodeListLen 5
               <> encode (getProtocolMagic (_gbhProtocolMagic bh))
               <> encode (_gbhPrevBlock bh)
@@ -141,6 +149,7 @@ instance ( Typeable b
         _gbhBodyProof <- decode
         _gbhConsensus <- decode
         _gbhExtra     <- decode
+        let _gbhDecoderAttr = DecoderAttrNone
         pure UnsafeGenericBlockHeader {..}
 
 instance
@@ -148,14 +157,14 @@ instance
     , NFData (BodyProof b)
     , NFData (ConsensusData b)
     , NFData (ExtraHeaderData b)
-    ) => NFData (GenericBlockHeader b)
+    ) => NFData (GenericBlockHeader b attr)
 
 instance ( SafeCopy (BHeaderHash b)
          , SafeCopy (BodyProof b)
          , SafeCopy (ConsensusData b)
          , SafeCopy (ExtraHeaderData b)
          ) =>
-         SafeCopy (GenericBlockHeader b) where
+         SafeCopy (GenericBlockHeader b 'AttrNone) where
     getCopy =
         contain $
         do _gbhProtocolMagic <- safeGet
@@ -163,6 +172,7 @@ instance ( SafeCopy (BHeaderHash b)
            _gbhBodyProof <- safeGet
            _gbhConsensus <- safeGet
            _gbhExtra <- safeGet
+           let _gbhDecoderAttr = DecoderAttrNone
            return $! UnsafeGenericBlockHeader {..}
     putCopy UnsafeGenericBlockHeader {..} =
         contain $
@@ -180,17 +190,18 @@ instance ( SafeCopy (BHeaderHash b)
 -- instance, for generic block proof of body must correspond to the
 -- body itself. Also there may be other invariants specific for
 -- particular blockchains.
-data GenericBlock b = UnsafeGenericBlock
-    { _gbHeader :: !(GenericBlockHeader b)
-    , _gbBody   :: !(Body b)
-    , _gbExtra  :: !(ExtraBodyData b)
+data GenericBlock b attr = UnsafeGenericBlock
+    { _gbHeader       :: !(GenericBlockHeader b attr)
+    , _gbBody         :: !(Body b)
+    , _gbExtra        :: !(ExtraBodyData b)
+    , _gbDecoderAttr  :: !(DecoderAttr attr)
     } deriving (Generic)
 
 deriving instance
-    ( Show (GenericBlockHeader b)
+    ( Show (GenericBlockHeader b attr)
     , Show (Body b)
     , Show (ExtraBodyData b)
-    ) => Show (GenericBlock b)
+    ) => Show (GenericBlock b attr)
 
 deriving instance
     ( Eq (BHeaderHash b)
@@ -199,7 +210,7 @@ deriving instance
     , Eq (ConsensusData b)
     , Eq (ExtraBodyData b)
     , Eq (ExtraHeaderData b)
-    ) => Eq (GenericBlock b)
+    ) => Eq (GenericBlock b attr)
 
 instance ( Typeable b
          , Bi (BHeaderHash b)
@@ -208,7 +219,7 @@ instance ( Typeable b
          , Bi (ConsensusData b)
          , Bi (ExtraBodyData b)
          , Bi (ExtraHeaderData b)
-         ) => Bi (GenericBlock b) where
+         ) => Bi (GenericBlock b 'AttrNone) where
     encode gb =  encodeListLen 3
               <> encode (_gbHeader gb)
               <> encode (_gbBody gb)
@@ -218,6 +229,7 @@ instance ( Typeable b
         _gbHeader <- decode
         _gbBody   <- decode
         _gbExtra  <- decode
+        let _gbDecoderAttr = DecoderAttrNone
         pure UnsafeGenericBlock {..}
 
 -- Derived partially in Instances
@@ -233,12 +245,13 @@ instance ( SafeCopy (BHeaderHash b)
          , SafeCopy (Body b)
          , SafeCopy (ExtraBodyData b)
          ) =>
-         SafeCopy (GenericBlock b) where
+         SafeCopy (GenericBlock b 'AttrNone) where
     getCopy =
         contain $
         do _gbHeader <- safeGet
            _gbBody <- safeGet
            _gbExtra <- safeGet
+           let _gbDecoderAttr = DecoderAttrNone
            return $! UnsafeGenericBlock {..}
     putCopy UnsafeGenericBlock {..} =
         contain $
@@ -254,35 +267,38 @@ instance ( SafeCopy (BHeaderHash b)
 -- "Smart" because it makes the body proof for you and then runs your
 -- consensus function.
 mkGenericHeader
-    :: forall b .
-       ( Blockchain b )
+    :: forall attr b .
+       ( Blockchain b attr )
     => ProtocolMagic
     -> BHeaderHash b
     -> Body b
     -> (BodyProof b -> ConsensusData b)
     -> ExtraHeaderData b
-    -> GenericBlockHeader b
-mkGenericHeader pm hashPrev body consensus extra =
-    UnsafeGenericBlockHeader pm hashPrev proof (consensus proof) extra
+    -> DecoderAttr attr
+    -> GenericBlockHeader b attr
+mkGenericHeader pm hashPrev body consensus extra decAttr =
+    UnsafeGenericBlockHeader pm hashPrev proof (consensus proof) extra decAttr
   where
-    proof = mkBodyProof @b body
+    proof = mkBodyProof @b @attr body
 
 -- | Smart constructor for 'GenericBlock'.
 -- "Smart" because it uses the 'mkGenericHeader' "smart" constructor.
 mkGenericBlock
-    :: forall b .
-       ( Blockchain b )
+    :: forall attr b .
+       ( Blockchain b attr )
     => ProtocolMagic
     -> BHeaderHash b
     -> Body b
     -> (BodyProof b -> ConsensusData b)
     -> ExtraHeaderData b
     -> ExtraBodyData b
-    -> GenericBlock b
-mkGenericBlock pm hashPrev body consensus extraH extra =
-    UnsafeGenericBlock header body extra
+    -> DecoderAttr attr -- ^ header decoder's attributes
+    -> DecoderAttr attr -- ^ block decoder's attributes
+    -> GenericBlock b attr
+mkGenericBlock pm hashPrev body consensus extraH extra decAttrH decAttr =
+    UnsafeGenericBlock header body extra decAttr
   where
-    header = mkGenericHeader pm hashPrev body consensus extraH
+    header = mkGenericHeader pm hashPrev body consensus extraH decAttrH
 
 ----------------------------------------------------------------------------
 -- Lenses
@@ -292,13 +308,17 @@ makeLenses ''GenericBlockHeader
 makeLenses ''GenericBlock
 
 -- | Lens from 'GenericBlock' to 'BHeaderHash' of its parent.
-gbPrevBlock :: Lens' (GenericBlock b) (BHeaderHash b)
+gbPrevBlock :: Lens' (GenericBlock b attr) (BHeaderHash b)
 gbPrevBlock = gbHeader . gbhPrevBlock
 
 -- | Lens from 'GenericBlock' to 'BodyProof'.
-gbBodyProof :: Lens' (GenericBlock b) (BodyProof b)
+gbBodyProof :: Lens' (GenericBlock b attr) (BodyProof b)
 gbBodyProof = gbHeader . gbhBodyProof
 
 -- | Lens from 'GenericBlock' to 'ConsensusData'.
-gbConsensus :: Lens' (GenericBlock b) (ConsensusData b)
+gbConsensus :: Lens' (GenericBlock b attr) (ConsensusData b)
 gbConsensus = gbHeader . gbhConsensus
+
+-- | Lens from 'GenericBlock' to header's 'DecoderAttr'.
+gbHeaderDecoderAttr :: Lens' (GenericBlock b attr) (DecoderAttr attr)
+gbHeaderDecoderAttr = gbHeader . gbhDecoderAttr

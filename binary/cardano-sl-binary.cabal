@@ -32,6 +32,7 @@ library
                      , cborg
                      , cereal
                      , containers
+                     , deepseq
                      , digest
                      , formatting
                      , half
@@ -44,6 +45,7 @@ library
                      , tagged
                      , template-haskell
                      , text
+                     , text-format
                      , th-utilities
                      , time-units
                      , transformers

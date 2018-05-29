@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds          #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 -- the Getter instances
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
@@ -26,7 +29,10 @@ module Pos.Core.Block.Union.Types
        , BlockSignature (..)
 
        -- * HeaderHash related types and functions
-       , HeaderHash
+       , HeaderHash (..)
+       , anyHeaderHash
+       , headerHashHexF
+       , shortHeaderHashF
        , headerHashF
        , HasHeaderHash (..)
        , headerHashG
@@ -50,12 +56,16 @@ import           Control.Lens (Getter, LensLike', choosing, makePrisms, to)
 
 import           Data.SafeCopy (SafeCopy (..), contain, safeGet, safePut)
 import qualified Data.Serialize as Cereal
+import           Crypto.Hash (digestFromByteString)
+import qualified Data.ByteArray as BA
 import qualified Data.Text.Buildable as Buildable
-import           Formatting (Format, bprint, build, (%))
+import qualified Data.Text.Lazy.Builder as Builder
+import           Formatting (Format, bprint, build, fitLeft, later, (%), (%.))
 import           Universum
 
-import           Pos.Binary.Class (Bi (..), decodeListLenCanonicalOf,
-                     encodeListLen, enforceSize)
+import           Pos.Binary.Class (Bi (..), DecoderAttrKind (..),
+                     decodeListLenCanonicalOf, deserializeOrFail, encodeListLen,
+                     enforceSize)
 import           Pos.Core.Block.Blockchain (Blockchain (..), GenericBlock (..),
                      GenericBlockHeader (..), gbHeader, gbhPrevBlock)
 import           Pos.Core.Block.Genesis.Types
@@ -68,10 +78,12 @@ import           Pos.Core.Ssc (mkSscProof)
 import           Pos.Core.Txp (mkTxProof)
 import           Pos.Core.Update (HasBlockVersion (..), HasSoftwareVersion (..),
                      mkUpdateProof)
-import           Pos.Crypto (Hash, ProtocolMagic, PublicKey, Signature, hash,
-                     unsafeHash)
+import           Pos.Crypto (AbstractHash (..), Hash, ProtocolMagic, PublicKey,
+                     Signature, hash)
 import           Pos.Util.Some (Some, applySome, liftLensSome)
-import           Pos.Util.Util (cborError, cerealError)
+import           Pos.Util.Util (cborError, cerealError, toCborError,
+                     toCerealError)
+import           Unsafe.Coerce (unsafeCoerce)
 
 ----------------------------------------------------------------------------
 -- GenesisBlockchain
@@ -85,22 +97,22 @@ import           Pos.Util.Util (cborError, cerealError)
 data GenesisBlockchain
 
 -- | Header of Genesis block.
-type GenesisBlockHeader = GenericBlockHeader GenesisBlockchain
+type GenesisBlockHeader attr = GenericBlockHeader GenesisBlockchain attr
 
 -- | Genesis block parametrized by 'GenesisBlockchain'.
-type GenesisBlock = GenericBlock GenesisBlockchain
+type GenesisBlock attr = GenericBlock GenesisBlockchain attr
 
-instance Blockchain GenesisBlockchain where
+instance Blockchain GenesisBlockchain attr where
     type BodyProof GenesisBlockchain = GenesisProof
     type ConsensusData GenesisBlockchain = GenesisConsensusData
-    type BBlockHeader GenesisBlockchain = BlockHeader
+    type BBlockHeader GenesisBlockchain attr = Hash (BlockHeader attr)
     type BHeaderHash GenesisBlockchain = HeaderHash
     type ExtraHeaderData GenesisBlockchain = GenesisExtraHeaderData
 
     type Body GenesisBlockchain = GenesisBody
 
     type ExtraBodyData GenesisBlockchain = GenesisExtraBodyData
-    type BBlock GenesisBlockchain = Block
+    type BBlock GenesisBlockchain attr = Block attr
 
     mkBodyProof = GenesisProof . hash . _gbLeaders
 
@@ -113,11 +125,11 @@ instance Blockchain GenesisBlockchain where
 data MainBlockchain
 
 -- | Header of generic main block.
-type MainBlockHeader = GenericBlockHeader MainBlockchain
+type MainBlockHeader attr = GenericBlockHeader MainBlockchain attr
 
 -- | MainBlock is a block with transactions and MPC messages. It's the
 -- main part of our consensus algorithm.
-type MainBlock = GenericBlock MainBlockchain
+type MainBlock attr = GenericBlock MainBlockchain attr
 
 -- | Signature of the block. Can be either regular signature from the
 -- issuer or delegated signature having a constraint on epoch indices
@@ -163,8 +175,8 @@ instance SafeCopy BlockSignature where
 -- | Data to be signed in main block.
 data MainToSign
     = MainToSign
-    { _msHeaderHash  :: !HeaderHash  -- ^ Hash of previous header
-                                     --    in the chain
+    { _msHeaderHash  :: !HeaderHash
+      -- ^ Hash of previous header in the chain
     , _msBodyProof   :: !MainProof
     , _msSlot        :: !SlotId
     , _msChainDiff   :: !ChainDifficulty
@@ -216,22 +228,22 @@ instance Bi MainConsensusData where
                                  decode <*>
                                  decode
 
-instance ( Bi BlockHeader
+instance ( Bi (BlockHeader attr)
          , Bi MainProof) =>
-         Blockchain MainBlockchain where
+         Blockchain MainBlockchain attr where
 
     type BodyProof MainBlockchain = MainProof
 
     type ConsensusData MainBlockchain = MainConsensusData
 
-    type BBlockHeader MainBlockchain = BlockHeader
+    type BBlockHeader MainBlockchain attr = BlockHeader attr
     type BHeaderHash MainBlockchain = HeaderHash
     type ExtraHeaderData MainBlockchain = MainExtraHeaderData
 
     type Body MainBlockchain = MainBody
 
     type ExtraBodyData MainBlockchain = MainExtraBodyData
-    type BBlock MainBlockchain = Block
+    type BBlock MainBlockchain attr = Block attr
 
     mkBodyProof MainBody{..} =
         MainProof
@@ -261,31 +273,30 @@ instance SafeCopy MainConsensusData where
 ----------------------------------------------------------------------------
 
 -- | Either header of ordinary main block or genesis block.
-data BlockHeader
-    = BlockHeaderGenesis GenesisBlockHeader
-    | BlockHeaderMain MainBlockHeader
+data BlockHeader attr
+    = BlockHeaderGenesis (GenesisBlockHeader attr)
+    | BlockHeaderMain (MainBlockHeader attr)
 
-deriving instance Generic BlockHeader
-deriving instance (Eq GenesisBlockHeader, Eq MainBlockHeader) => Eq BlockHeader
-deriving instance (Show GenesisBlockHeader, Show MainBlockHeader) => Show BlockHeader
-
+deriving instance Generic (BlockHeader attr)
+deriving instance (Eq (GenesisBlockHeader attr), Eq (MainBlockHeader attr)) => Eq (BlockHeader attr)
+deriving instance (Show (GenesisBlockHeader attr), Show (MainBlockHeader attr)) => Show (BlockHeader attr)
 instance
-    ( NFData GenesisBlockHeader
-    , NFData MainBlockHeader
+    ( NFData (GenesisBlockHeader attr)
+    , NFData (MainBlockHeader attr)
     )
-    => NFData BlockHeader where
+    => NFData (BlockHeader attr) where
     rnf (BlockHeaderGenesis header) = rnf header
     rnf (BlockHeaderMain header)    = rnf header
 
 choosingBlockHeader :: Functor f =>
-       LensLike' f GenesisBlockHeader r
-    -> LensLike' f MainBlockHeader r
-    -> LensLike' f BlockHeader r
+       LensLike' f (GenesisBlockHeader attr) r
+    -> LensLike' f (MainBlockHeader attr) r
+    -> LensLike' f (BlockHeader attr) r
 choosingBlockHeader onGenesis onMain f = \case
     BlockHeaderGenesis bh -> BlockHeaderGenesis <$> onGenesis f bh
     BlockHeaderMain bh -> BlockHeaderMain <$> onMain f bh
 
-instance Bi BlockHeader where
+instance Bi (BlockHeader 'AttrNone) where
    encode x = encodeListLen 2 <> encodeWord tag <> body
      where
        (tag, body) = case x of
@@ -301,14 +312,62 @@ instance Bi BlockHeader where
            _ -> cborError $ "decode@BlockHeader: unknown tag " <> pretty t
 
 -- | Block.
-type Block = Either GenesisBlock MainBlock
+type Block (attr :: DecoderAttrKind) = Either (GenesisBlock attr) (MainBlock attr)
 
 ----------------------------------------------------------------------------
 -- HeaderHash
 ----------------------------------------------------------------------------
 
 -- | 'Hash' of block header.
-type HeaderHash = Hash BlockHeader
+newtype HeaderHash = HeaderHash
+    { unHeaderHash :: forall (attr :: DecoderAttrKind). Hash (BlockHeader attr) }
+
+-- | Constructor for `HeaderHash`.
+anyHeaderHash :: Hash (BlockHeader attr) -> HeaderHash
+anyHeaderHash h = HeaderHash (unsafeCoerce h)
+
+deriving instance Eq HeaderHash
+deriving instance Show HeaderHash
+deriving instance Ord HeaderHash
+deriving instance BA.ByteArrayAccess HeaderHash
+deriving instance Typeable HeaderHash
+deriving instance NFData HeaderHash
+
+instance Buildable HeaderHash where
+    build (HeaderHash (AbstractHash h)) = Builder.fromString $ show h
+
+-- TODO: add QuickCheck tests
+instance SafeCopy HeaderHash where
+    putCopy (HeaderHash h) = putCopy $ coerce h
+        where
+        coerce :: Hash (BlockHeader attr) -> Hash (BlockHeader 'AttrNone)
+        coerce = unsafeCoerce
+
+    getCopy = contain $ do
+        bs <- safeGet
+        toCerealError $ case deserializeOrFail @(Hash (BlockHeader 'AttrNone)) bs of
+            Left (err, _) -> Left $ "getCopy@" <> label (Proxy @(Hash (BlockHeader 'AttrNone))) <> ": " <> show err
+            Right (x, _) -> Right (anyHeaderHash x)
+
+-- | Specialized formatter for 'HeaderHash'.
+headerHashHexF :: Format r (HeaderHash -> r)
+headerHashHexF = later $ \(HeaderHash (AbstractHash x)) -> Buildable.build (show x :: Text)
+
+-- | Smart formatter for 'Hash' to show only first @8@ characters of 'Hash'.
+shortHeaderHashF :: Format r (HeaderHash -> r)
+shortHeaderHashF = fitLeft 8 %. headerHashHexF
+
+-- |
+-- `HeaderHash` `Bi` instance is compatible with `Bi` instance of `AbstractHash`
+-- but doe not carry `Typeable` constraints.
+instance Bi HeaderHash where
+    encode (HeaderHash (AbstractHash digest))
+        = encode (BA.convert digest :: ByteString)
+    decode = do
+        bs <- decode @ByteString
+        toCborError $ case digestFromByteString bs of
+            Nothing -> Left "HeaderHash.decode: invalid digest"
+            Just x  -> Right (anyHeaderHash $ AbstractHash x)
 
 -- | Specialized formatter for 'HeaderHash'.
 headerHashF :: Format r (HeaderHash -> r)
@@ -332,8 +391,8 @@ headerHashG = to headerHash
 --
 -- Perhaps, it shouldn't be here, but I decided not to create a module
 -- for only this function.
-blockHeaderHash :: Bi BlockHeader => BlockHeader -> HeaderHash
-blockHeaderHash = unsafeHash
+blockHeaderHash :: forall attr. Bi (BlockHeader attr) => BlockHeader attr -> HeaderHash
+blockHeaderHash = anyHeaderHash . hash
 
 -- HasPrevBlock
 -- | Class for something that has previous block (lens to 'Hash' for this block).
@@ -352,19 +411,19 @@ instance {-# OVERLAPPABLE #-} HasPrevBlock s => HasPrevBlock (s, z) where
     prevBlockL = _1 . prevBlockL
 
 instance (BHeaderHash b ~ HeaderHash) =>
-         HasPrevBlock (GenericBlockHeader b) where
+         HasPrevBlock (GenericBlockHeader b attr) where
     prevBlockL = gbhPrevBlock
 
 instance (BHeaderHash b ~ HeaderHash) =>
-         HasPrevBlock (GenericBlock b) where
+         HasPrevBlock (GenericBlock b attr) where
     prevBlockL = gbHeader . gbhPrevBlock
 
-instance HasPrevBlock BlockHeader where
+instance HasPrevBlock (BlockHeader attr) where
     prevBlockL = choosingBlockHeader prevBlockL prevBlockL
 
 
 -- | The 'ProtocolMagic' in a 'BlockHeader'.
-blockHeaderProtocolMagic :: BlockHeader -> ProtocolMagic
+blockHeaderProtocolMagic :: BlockHeader attr -> ProtocolMagic
 blockHeaderProtocolMagic (BlockHeaderGenesis gbh) = _gbhProtocolMagic gbh
 blockHeaderProtocolMagic (BlockHeaderMain mbh)    = _gbhProtocolMagic mbh
 

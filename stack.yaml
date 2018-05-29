@@ -82,7 +82,8 @@ packages:
 # https://github.com/well-typed/cborg/issues/171
 - location:
     git: https://github.com/well-typed/cborg
-    commit: 3d274c14ca3077c3a081ba7ad57c5182da65c8c1
+    # Has support for peekByteOffset
+    commit: 9220cefbf58617697edbbe51aba97bda79e5c53d
   subdirs:
   - cborg
   extra-dep: true

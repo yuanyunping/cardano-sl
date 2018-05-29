@@ -12,6 +12,7 @@ import qualified Data.Text.Buildable as Buildable
 import           Formatting (bprint, build, int, sformat, stext, (%))
 import           Serokell.Util (Color (Magenta), colorize)
 
+import           Pos.Binary.Class (Bi)
 import           Pos.Core.Block.Blockchain (GenericBlock (..),
                      GenericBlockHeader (..), gbHeader, gbhConsensus)
 import           Pos.Core.Block.Genesis.Lens (gcdDifficulty, gcdEpoch)
@@ -19,24 +20,24 @@ import           Pos.Core.Block.Genesis.Types (GenesisBody (..),
                      GenesisConsensusData (..))
 import           Pos.Core.Block.Union.Types (BlockHeader (..), GenesisBlock,
                      GenesisBlockHeader, HasHeaderHash (..), HeaderHash,
-                     IsGenesisHeader, IsHeader, blockHeaderHash)
+                     IsGenesisHeader, IsHeader, blockHeaderHash,
+                     headerHashHexF)
 import           Pos.Core.Common (HasDifficulty (..), slotLeadersF)
 import           Pos.Core.Slotting (EpochOrSlot (..), HasEpochIndex (..),
                      HasEpochOrSlot (..))
-import           Pos.Crypto (hashHexF)
 
-instance NFData GenesisBlock
+instance NFData (GenesisBlock attr)
 
 ----------------------------------------------------------------------------
 -- Buildable
 ----------------------------------------------------------------------------
 
-instance Buildable GenesisBlockHeader where
+instance Bi (BlockHeader attr) => Buildable (GenesisBlockHeader attr) where
     build gbh@UnsafeGenericBlockHeader {..} =
         bprint
             ("GenesisBlockHeader:\n"%
-             "    hash: "%hashHexF%"\n"%
-             "    previous block: "%hashHexF%"\n"%
+             "    hash: "%headerHashHexF%"\n"%
+             "    previous block: "%headerHashHexF%"\n"%
              "    epoch: "%build%"\n"%
              "    difficulty: "%int%"\n"
             )
@@ -49,7 +50,7 @@ instance Buildable GenesisBlockHeader where
         gbhHeaderHash = blockHeaderHash $ BlockHeaderGenesis gbh
         GenesisConsensusData {..} = _gbhConsensus
 
-instance Buildable GenesisBlock where
+instance Bi (BlockHeader attr) => Buildable (GenesisBlock attr) where
     build UnsafeGenericBlock {..} =
         bprint
             (stext%":\n"%
@@ -65,32 +66,34 @@ instance Buildable GenesisBlock where
         formatLeaders = formatIfNotNull
             ("  leaders: "%slotLeadersF%"\n") (toList _gbLeaders)
 
-instance HasEpochIndex GenesisBlock where
+instance HasEpochIndex (GenesisBlock attr) where
     epochIndexL = gbHeader . gbhConsensus . gcdEpoch
 
-instance HasEpochIndex GenesisBlockHeader where
+instance HasEpochIndex (GenesisBlockHeader attr) where
     epochIndexL = gbhConsensus . gcdEpoch
 
-instance HasEpochOrSlot GenesisBlockHeader where
+instance HasEpochOrSlot (GenesisBlockHeader attr) where
     getEpochOrSlot = EpochOrSlot . Left . _gcdEpoch . _gbhConsensus
 
-instance HasEpochOrSlot GenesisBlock where
+instance HasEpochOrSlot (GenesisBlock attr) where
     getEpochOrSlot = getEpochOrSlot . _gbHeader
 
-instance HasHeaderHash GenesisBlockHeader where
+instance Bi (BlockHeader attr) =>
+         HasHeaderHash (GenesisBlockHeader attr) where
     headerHash = blockHeaderHash . BlockHeaderGenesis
 
-instance HasHeaderHash GenesisBlock where
+instance Bi (BlockHeader attr) =>
+         HasHeaderHash (GenesisBlock attr) where
     headerHash = blockHeaderHash . BlockHeaderGenesis . _gbHeader
 
 instance HasDifficulty GenesisConsensusData where
     difficultyL = gcdDifficulty
 
-instance HasDifficulty GenesisBlockHeader where
+instance HasDifficulty (GenesisBlockHeader attr) where
     difficultyL = gbhConsensus . difficultyL
 
-instance HasDifficulty GenesisBlock where
+instance HasDifficulty (GenesisBlock attr) where
     difficultyL = gbHeader . difficultyL
 
-instance IsHeader GenesisBlockHeader
-instance IsGenesisHeader GenesisBlockHeader
+instance Bi (BlockHeader attr) => IsHeader (GenesisBlockHeader attr)
+instance Bi (BlockHeader attr) => IsGenesisHeader (GenesisBlockHeader attr)

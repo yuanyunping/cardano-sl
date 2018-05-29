@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | This module tests SafeCopy instances for Block types.
@@ -9,6 +10,7 @@ module Test.Pos.Block.SafeCopySpec
 import           Test.Hspec (Spec, describe)
 import           Universum
 
+import           Pos.Binary.Class (DecoderAttrKind (..))
 import qualified Pos.Core.Block as Core
 import           Pos.Core.Configuration (defaultCoreConfiguration,
                      withGenesisSpec)
@@ -24,9 +26,9 @@ spec = withGenesisSpec 0 defaultCoreConfiguration $ \_ -> describe "Block types"
     describe "SafeCopy instances" $ do
         describe "GenericBlockHeader" $ do
             describe "GenesisBlockHeader" $ do
-                safeCopyTest @Core.GenesisBlockHeader
+                safeCopyTest @(Core.GenesisBlockHeader 'AttrNone)
             describe "MainBlockHeader" $ do
-                safeCopyTest @Core.MainBlockHeader
+                safeCopyTest @(Core.MainBlockHeader 'AttrNone)
         describe "GenesisBlockchain" $ do
             describe "BodyProof" $ do
                 safeCopyTest @(Core.BodyProof Core.GenesisBlockchain)

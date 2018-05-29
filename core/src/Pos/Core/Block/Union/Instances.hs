@@ -16,6 +16,7 @@ import           Universum
 import           Control.Lens (Getter, choosing, lens, to)
 import qualified Data.Text.Buildable as Buildable
 
+import           Pos.Binary.Class (Bi)
 import           Pos.Core.Block.Blockchain (GenericBlock (..))
 import           Pos.Core.Block.Genesis ()
 import           Pos.Core.Block.Main ()
@@ -32,7 +33,7 @@ import           Pos.Util.Some (Some)
 -- Buildable
 ----------------------------------------------------------------------------
 
-instance Buildable BlockHeader where
+instance Bi (BlockHeader attr) => Buildable (BlockHeader attr) where
     build = \case
         BlockHeaderGenesis bhg -> Buildable.build bhg
         BlockHeaderMain    bhm -> Buildable.build bhm
@@ -41,19 +42,19 @@ instance Buildable BlockHeader where
 -- HasHeaderHash
 ----------------------------------------------------------------------------
 
-instance  HasHeaderHash BlockHeader where
+instance Bi (BlockHeader attr) => HasHeaderHash (BlockHeader attr) where
     headerHash = blockHeaderHash
 
-instance HasHeaderHash Block where
+instance Bi (BlockHeader attr) => HasHeaderHash (Block attr) where
     headerHash = blockHeaderHash . getBlockHeader
 
 -- | Take 'BlockHeader' from either 'GenesisBlock' or 'MainBlock'.
-getBlockHeader :: Block -> BlockHeader
+getBlockHeader :: Block attr -> BlockHeader attr
 getBlockHeader = \case
     Left  gb -> BlockHeaderGenesis (_gbHeader gb)
     Right mb -> BlockHeaderMain    (_gbHeader mb)
 
-blockHeader :: Getter Block BlockHeader
+blockHeader :: Getter (Block attr) (BlockHeader attr)
 blockHeader = to getBlockHeader
 
 -- | Representation of 'Block' passed to a component.
@@ -71,24 +72,24 @@ instance HasHeaderHash (ComponentBlock a) where
 -- HasDifficulty
 ----------------------------------------------------------------------------
 
-instance HasDifficulty BlockHeader where
+instance HasDifficulty (BlockHeader attr) where
     difficultyL = choosingBlockHeader difficultyL difficultyL
 
-instance HasDifficulty Block where
+instance HasDifficulty (Block attr) where
     difficultyL = choosing difficultyL difficultyL
 
 -----------------------------------------------------------------------------
 --- HasEpochIndex
 -----------------------------------------------------------------------------
 
-instance HasEpochIndex BlockHeader where
+instance HasEpochIndex (BlockHeader attr) where
     epochIndexL = choosingBlockHeader epochIndexL epochIndexL
 
 ----------------------------------------------------------------------------
 -- IsHeader
 ----------------------------------------------------------------------------
 
-instance IsHeader BlockHeader
+instance Bi (BlockHeader attr) => IsHeader (BlockHeader attr)
 
 ----------------------------------------------------------------------------
 -- HasPrevBlock
@@ -122,7 +123,7 @@ instance HasEpochIndex (ComponentBlock a) where
 -- HasEpochOrSlot
 ----------------------------------------------------------------------------
 
-instance HasEpochOrSlot BlockHeader where
+instance HasEpochOrSlot (BlockHeader attr) where
     getEpochOrSlot = view (choosingBlockHeader (to getEpochOrSlot) (to getEpochOrSlot))
 
 instance HasEpochOrSlot (ComponentBlock a) where
