@@ -1,14 +1,12 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeFamilies          #-}
 
 module Node.Message.Binary
     ( BinaryP
-    , binaryP
-    , binaryPacking
-    , binaryPackMsg
-    , binaryUnpackMsg
+    , binarySerialization
     ) where
 
 import qualified Data.Binary as Bin
@@ -16,45 +14,31 @@ import qualified Data.Binary.Get as Bin
 import qualified Data.Binary.Put as Bin
 import qualified Data.ByteString.Builder.Extra as BS
 import qualified Data.ByteString.Lazy as LBS
-import           Data.Functor.Identity (Identity (..))
-import           Data.Proxy (Proxy (..))
 import qualified Data.Text as T
-import           Node.Message.Class (Packing (..), PackingType (..),
-                     Serializable (..))
+import           Node.Message.Class (Serializable (..))
 import           Node.Message.Decoder (Decoder (..), DecoderStep (..))
 
 data BinaryP
 
-binaryP :: Proxy BinaryP
-binaryP = Proxy
-
--- | BinaryP packing works in any Applicative.
-binaryPacking :: ( Applicative m ) => Packing BinaryP m
-binaryPacking = Packing
-    { packingType = binaryP
-    , packM = pure . runIdentity
-    , unpackM = pure . runIdentity
-    }
-
-instance PackingType BinaryP where
-    type PackM BinaryP = Identity
-    type UnpackM BinaryP = Identity
-
-binaryPackMsg :: Bin.Put -> LBS.ByteString
-binaryPackMsg =
+packBinary :: Bin.Put -> LBS.ByteString
+packBinary =
     BS.toLazyByteStringWith
         (BS.untrimmedStrategy 256 4096)
         LBS.empty
     . Bin.execPut
 
-binaryUnpackMsg :: Bin.Get t -> Decoder (UnpackM BinaryP) t
-binaryUnpackMsg get = Decoder (pure (fromBinaryDecoder (Bin.runGetIncremental get)))
-
-fromBinaryDecoder :: Bin.Decoder t -> DecoderStep (UnpackM BinaryP) t
+fromBinaryDecoder :: Applicative m => Bin.Decoder t -> DecoderStep m t
 fromBinaryDecoder (Bin.Done bs bo t)   = Done bs bo t
 fromBinaryDecoder (Bin.Fail bs bo err) = Fail bs bo (T.pack err)
 fromBinaryDecoder (Bin.Partial k)      = Partial (Decoder . pure . fromBinaryDecoder . k)
 
-instance ( Bin.Binary t ) => Serializable BinaryP t where
-    packMsg _ = pure . binaryPackMsg . Bin.put
-    unpackMsg _ = binaryUnpackMsg Bin.get
+binarySerialization
+    :: forall m t. (Bin.Binary t, Applicative m)
+    => Serializable BinaryP m t
+binarySerialization = Serializable packB unpackB
+    where
+    packB :: t -> m LBS.ByteString
+    packB = pure . packBinary . Bin.put
+
+    unpackB :: Decoder m t
+    unpackB = Decoder $ pure $ fromBinaryDecoder $ Bin.runGetIncremental Bin.get

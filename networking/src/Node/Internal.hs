@@ -73,7 +73,7 @@ import           Data.Time.Units (Microsecond)
 import           Formatting (sformat, shown, (%))
 import           GHC.Generics (Generic)
 import qualified Network.Transport as NT
-import           Node.Message.Class (Packing, Serializable (..), pack, unpack)
+import           Node.Message.Class (Serializable (..), pack, unpack)
 import           Node.Message.Decoder (Decoder (..), DecoderStep (..),
                      continueDecoding)
 import           Pos.Util.Trace (Severity (..), Trace, traceWith)
@@ -202,27 +202,27 @@ constantReceiveDelay = pure . Just
 -- | A 'Node' is a network-transport 'EndPoint' with bidirectional connection
 --   state and a thread to dispatch network-transport events.
 data Node packingType peerData = Node {
-       nodeTrace            :: Trace IO (Severity, Text)
-     , nodeEndPoint         :: NT.EndPoint
-     , nodeCloseEndPoint    :: IO ()
-     , nodeDispatcherThread :: Async ()
-     , nodeEnvironment      :: NodeEnvironment
-     , nodeState            :: MVar (NodeState peerData)
-     , nodePacking          :: Packing packingType IO
-     , nodePeerData         :: peerData
+       nodeTrace             :: Trace IO (Severity, Text)
+     , nodeEndPoint          :: NT.EndPoint
+     , nodeCloseEndPoint     :: IO ()
+     , nodeDispatcherThread  :: Async ()
+     , nodeEnvironment       :: NodeEnvironment
+     , nodeState             :: MVar (NodeState peerData)
+     , nodePeerData          :: peerData
        -- | How long to wait before dequeueing an event from the
        --   network-transport receive queue, where Nothing means
        --   instantaneous (different from a 0 delay).
        --   The term is evaluated once for each dequeued event, immediately
        --   before dequeueing it.
-     , nodeReceiveDelay     :: ReceiveDelay
+     , nodeReceiveDelay      :: ReceiveDelay
        -- | As 'nodeReceiveDelay' but instead of a delay on every network
        --   level message, the delay applies only to establishing new
        --   incomming connections. These connect/talk/close patterns tend
        --   to correspond to application level messages or conversations
        --   so this is a way to delay per-high-level message rather than
        --   lower level events.
-     , nodeConnectDelay     :: ReceiveDelay
+     , nodeConnectDelay      :: ReceiveDelay
+     , nodeSerializePeerData :: Serializable packingType IO peerData
      }
 
 nodeId :: Node packingType peerData -> NodeId
@@ -623,10 +623,8 @@ manualNodeEndPoint ep = NodeEndPoint {
 
 -- | Bring up a 'Node' using a network transport.
 startNode
-    :: forall packingType peerData .
-       ( Serializable packingType peerData )
-    => Trace IO (Severity, Text)
-    -> Packing packingType IO
+    :: Serializable packingType IO peerData
+    -> Trace IO (Severity, Text)
     -> peerData
     -> (Node packingType peerData -> NodeEndPoint)
     -> (Node packingType peerData -> ReceiveDelay)
@@ -641,7 +639,7 @@ startNode
     -> (peerData -> NodeId -> ChannelIn -> ChannelOut -> IO ())
     -- ^ Handle incoming bidirectional connections.
     -> IO (Node packingType peerData)
-startNode logTrace packing peerData mkNodeEndPoint mkReceiveDelay mkConnectDelay
+startNode serializePeerData logTrace peerData mkNodeEndPoint mkReceiveDelay mkConnectDelay
           prng nodeEnv handlerInOut = do
     rec { let nodeEndPoint = mkNodeEndPoint node
         ; mEndPoint <- newNodeEndPoint nodeEndPoint
@@ -653,16 +651,16 @@ startNode logTrace packing peerData mkNodeEndPoint mkReceiveDelay mkConnectDelay
                   sharedState <- initialNodeState prng
                   -- TODO this thread should get exceptions from the dispatcher thread.
                   rec { let node = Node {
-                                  nodeTrace            = logTrace
-                                , nodeEndPoint         = endPoint
-                                , nodeCloseEndPoint    = closeNodeEndPoint nodeEndPoint endPoint
-                                , nodeDispatcherThread = dispatcherThread
-                                , nodeEnvironment      = nodeEnv
-                                , nodeState            = sharedState
-                                , nodePacking          = packing
-                                , nodePeerData         = peerData
-                                , nodeReceiveDelay     = receiveDelay
-                                , nodeConnectDelay     = connectDelay
+                                  nodeTrace             = logTrace
+                                , nodeEndPoint          = endPoint
+                                , nodeCloseEndPoint     = closeNodeEndPoint nodeEndPoint endPoint
+                                , nodeDispatcherThread  = dispatcherThread
+                                , nodeEnvironment       = nodeEnv
+                                , nodeState             = sharedState
+                                , nodePeerData          = peerData
+                                , nodeReceiveDelay      = receiveDelay
+                                , nodeConnectDelay      = connectDelay
+                                , nodeSerializePeerData = serializePeerData
                                 }
                       ; dispatcherThread <- async $
                             nodeDispatcher node handlerInOut
@@ -792,9 +790,8 @@ killRunningHandlers node = getRunningHandlers node >>= mapM_ cancelSomeHandler
 -- | The one thread that handles /all/ incoming messages and dispatches them
 -- to various handlers.
 nodeDispatcher
-    :: forall packingType peerData .
-       ( Serializable packingType peerData )
-    => Node packingType peerData
+    :: forall packingType peerData
+     . Node packingType peerData
     -> (peerData -> NodeId -> ChannelIn -> ChannelOut -> IO ())
     -> IO ()
 nodeDispatcher node handlerInOut =
@@ -957,7 +954,7 @@ nodeDispatcher node handlerInOut =
                 -- There's no leader. This connection is now the leader. Begin
                 -- the attempt to decode the peer data.
                 Nothing -> do
-                    decoderStep :: DecoderStep IO peerData <- runDecoder (unpack (nodePacking node))
+                    decoderStep :: DecoderStep IO peerData <- runDecoder (unpack (nodeSerializePeerData node))
                     decoderStep' <- continueDecoding decoderStep (BS.concat chunks)
                     case decoderStep' of
                         Fail _ _ err -> do
@@ -1376,9 +1373,8 @@ fixedSizeBuilder n =
 --   This may be killed with a 'Timeout' exception in case the peer does not
 --   give an ACK before the specified timeout ('nodeAckTimeout').
 withInOutChannel
-    :: forall packingType peerData a .
-       ( Serializable packingType peerData )
-    => Node packingType peerData
+    :: forall packingType peerData a
+     . Node packingType peerData
     -> NodeId
     -> (peerData -> ChannelIn -> ChannelOut -> IO a)
     -> IO a
@@ -1557,13 +1553,12 @@ disconnectFromPeer Node{nodeState} (NodeId peer) conn =
 --   will block until the peer-data is sent; it must be the first thing to
 --   arrive when the first lightweight connection to a peer is opened.
 connectToPeer
-    :: forall packingType peerData r .
-       ( Serializable packingType peerData )
-    => Node packingType peerData
+    :: forall packingType peerData r
+     . Node packingType peerData
     -> NodeId
     -> (NT.Connection -> IO r)
     -> IO r
-connectToPeer node@Node{nodeEndPoint, nodeState, nodePacking, nodePeerData, nodeEnvironment, nodeTrace} nid@(NodeId peer) act =
+connectToPeer node@Node{nodeEndPoint, nodeState, nodePeerData, nodeEnvironment, nodeTrace, nodeSerializePeerData} nid@(NodeId peer) act =
     -- 'establish' will update shared state indicating the nature of
     -- connections to this peer: how many are coming up, going down, or
     -- established. It's essential to bracket that against 'disconnectFromPeer'
@@ -1590,7 +1585,7 @@ connectToPeer node@Node{nodeEndPoint, nodeState, nodePacking, nodePeerData, node
         True  -> sendPeerData conn
 
     sendPeerData conn = do
-        serializedPeerData <- pack nodePacking nodePeerData
+        serializedPeerData <- pack nodeSerializePeerData nodePeerData
         writeMany mtu (ChannelOut conn) serializedPeerData
 
     getPeerDataResponsibility = do

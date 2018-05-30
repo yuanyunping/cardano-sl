@@ -28,7 +28,7 @@ import qualified Network.Discovery.Transport.Kademlia as K
 import           Network.Transport (Transport (..))
 import qualified Network.Transport.TCP as TCP
 import           Node
-import           Node.Message.Binary (BinaryP, binaryPacking)
+import           Node.Message.Binary (BinaryP, binarySerialization)
 import           Pos.Util.Trace (stdoutTrace)
 import           System.Environment (getArgs)
 import           System.Random
@@ -66,7 +66,7 @@ worker anId generator discovery = pingWorker generator
             peerSet <- knownPeers discovery
             putStrLn $ show anId ++ " has peer set: " ++ show peerSet
             forM_ (S.toList peerSet) $ \addr -> converseWith converse (NodeId addr) $
-                \_peerData -> Conversation $ \(cactions :: ConversationActions Void Pong) -> do
+                \_peerData -> Conversation binarySerialization binarySerialization $ \(cactions :: ConversationActions Void Pong) -> do
                     received <- recv cactions maxBound
                     case received of
                         Just (Pong _) -> putStrLn $ show anId ++ " heard PONG from " ++ show addr
@@ -80,7 +80,7 @@ listeners
 listeners anId peerData = [pongListener]
     where
     pongListener :: Listener Packing BS.ByteString
-    pongListener = Listener $ \_ peerId (cactions :: ConversationActions Pong Void) -> do
+    pongListener = Listener binarySerialization binarySerialization $ \_ peerId (cactions :: ConversationActions Pong Void) -> do
         putStrLn $ show anId ++  " heard PING from " ++ show peerId ++ " with peer data " ++ B8.unpack peerData
         send cactions (Pong "")
 
@@ -103,7 +103,7 @@ makeNode transport i = do
         prng2 = mkStdGen ((2 * i) + 1)
     putStrLn $ "Starting node " ++ show i
     forkIO $ node (contramap snd stdoutTrace) (simpleNodeEndPoint transport) (const noReceiveDelay) (const noReceiveDelay)
-                prng1 binaryPacking (B8.pack "my peer data!") defaultNodeEnvironment $ \node' ->
+                prng1 binarySerialization binarySerialization (B8.pack "my peer data!") defaultNodeEnvironment $ \node' ->
         NodeAction (listeners . nodeId $ node') $ \converse -> do
             putStrLn $ "Making discovery for node " ++ show i
             discovery <- K.kademliaDiscovery kademliaConfig initialPeer (nodeEndPointAddress node')

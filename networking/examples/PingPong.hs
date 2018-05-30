@@ -25,7 +25,7 @@ import           GHC.Generics (Generic)
 import           Network.Transport (closeTransport)
 import qualified Network.Transport.TCP as TCP
 import           Node
-import           Node.Message.Binary (BinaryP, binaryPacking)
+import           Node.Message.Binary (BinaryP, binarySerialization)
 import           Pos.Util.Trace (stdoutTrace)
 import           System.Random
 
@@ -73,7 +73,7 @@ worker anId generator peerIds = pingWorker generator
                         Just (Pong _) -> putStrLn $ show anId ++ " heard PONG from " ++ show peerId
                         Nothing -> error "Unexpected end of input"
             _ <- forConcurrently peerIds $ \peerId ->
-                converseWith converse peerId (\_ -> Conversation (pong peerId))
+                converseWith converse peerId (\_ -> Conversation binarySerialization binarySerialization (pong peerId))
             loop gen'
 
 listeners
@@ -83,10 +83,13 @@ listeners
 listeners anId peerData = [pongListener]
     where
     pongListener :: Listener Packing BS.ByteString
-    pongListener = Listener $ \_ peerId (cactions :: ConversationActions Pong Ping) -> do
-        putStrLn $ show anId ++  " heard PING from " ++ show peerId ++ " with peer data " ++ B8.unpack peerData
-        send cactions (Pong "")
-        putStrLn $ show anId ++ " sent PONG to " ++ show peerId
+    pongListener = Listener
+        binarySerialization
+        binarySerialization
+        $ \_ peerId (cactions :: ConversationActions Pong Ping) -> do
+            putStrLn $ show anId ++  " heard PING from " ++ show peerId ++ " with peer data " ++ B8.unpack peerData
+            send cactions (Pong "")
+            putStrLn $ show anId ++ " sent PONG to " ++ show peerId
 
 main :: IO ()
 main = do
@@ -104,10 +107,10 @@ main = do
 
     putStrLn $ "Starting nodes"
     node (contramap snd stdoutTrace) (simpleNodeEndPoint transport) (const noReceiveDelay) (const noReceiveDelay)
-         prng1 binaryPacking (B8.pack "I am node 1") defaultNodeEnvironment $ \node1 ->
+         prng1 binarySerialization binarySerialization (B8.pack "I am node 1") defaultNodeEnvironment $ \node1 ->
         NodeAction (listeners . nodeId $ node1) $ \converse1 -> do
             node (contramap snd stdoutTrace) (simpleNodeEndPoint transport) (const noReceiveDelay) (const noReceiveDelay)
-                  prng2 binaryPacking (B8.pack "I am node 2") defaultNodeEnvironment $ \node2 ->
+                  prng2 binarySerialization binarySerialization (B8.pack "I am node 2") defaultNodeEnvironment $ \node2 ->
                 NodeAction (listeners . nodeId $ node2) $ \converse2 -> do
                     tid1 <- forkIO $ worker (nodeId node1) prng3 [nodeId node2] converse1
                     tid2 <- forkIO $ worker (nodeId node2) prng4 [nodeId node1] converse2

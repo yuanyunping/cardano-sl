@@ -68,7 +68,7 @@ import qualified Network.Transport as NT
 import           Node.Conversation
 import           Node.Internal (ChannelIn, ChannelOut)
 import qualified Node.Internal as LL
-import           Node.Message.Class (Message (..), MessageCode, Packing,
+import           Node.Message.Class (Message (..), MessageCode,
                      Serializable (..), pack, unpack)
 import           Node.Message.Decoder (ByteOffset, Decoder (..),
                      DecoderStep (..), continueDecoding)
@@ -108,8 +108,10 @@ instance Exception NoParse where
 --   constraints on them.
 data Listener packingType peerData where
   Listener
-    :: ( Serializable packingType snd, Serializable packingType rcv, Message rcv )
-    => ListenerAction packingType peerData snd rcv
+    :: Message rcv
+    => Serializable packingType IO snd
+    -> Serializable packingType IO rcv
+    -> ListenerAction packingType peerData snd rcv
     -> Listener packingType peerData
 
 -- | A listener that handles an incoming bi-directional conversation.
@@ -125,9 +127,9 @@ type ListenerAction packingType peerData snd rcv =
 
 -- | Gets message type basing on type of incoming messages
 listenerMessageCode :: Listener packing peerData -> MessageCode
-listenerMessageCode (Listener (
-        _ :: peerData -> LL.NodeId -> ConversationActions snd rcv -> IO ()
-    )) = messageCode (Proxy :: Proxy rcv)
+listenerMessageCode (Listener
+        _ _ (_ :: peerData -> LL.NodeId -> ConversationActions snd rcv -> IO ())
+    ) = messageCode (Proxy :: Proxy rcv)
 
 type ListenerIndex packing peerData =
     Map MessageCode (Listener packing peerData)
@@ -143,14 +145,11 @@ makeListenerIndex = foldr combine (M.empty, [])
         in  (dict', overlapping ++ existing)
 
 nodeConverse
-    :: forall packing peerData .
-       ( Serializable packing peerData
-       , Serializable packing MessageCode
-       )
-    => LL.Node packing peerData
-    -> Packing packing IO
-    -> Converse packing peerData
-nodeConverse nodeUnit packing = Converse nodeConverse
+    :: forall packingType peerData .
+       LL.Node packingType peerData
+    -> Serializable packingType IO MessageCode
+    -> Converse packingType peerData
+nodeConverse nodeUnit serializeMessageCode = Converse nodeConverse
   where
 
     mtu = LL.nodeMtu (LL.nodeEnvironment nodeUnit)
@@ -158,42 +157,49 @@ nodeConverse nodeUnit packing = Converse nodeConverse
     nodeConverse
         :: forall t .
            LL.NodeId
-        -> (peerData -> Conversation packing t)
+        -> (peerData -> Conversation packingType t)
         -> IO t
     nodeConverse = \nodeId k ->
         LL.withInOutChannel nodeUnit nodeId $ \peerData inchan outchan -> case k peerData of
-            Conversation (converse :: ConversationActions snd rcv -> IO t) -> do
-                let msgCode = messageCode (Proxy :: Proxy snd)
-                    cactions :: ConversationActions snd rcv
-                    cactions = nodeConversationActions nodeUnit nodeId packing inchan outchan
-                pack packing msgCode >>= LL.writeMany mtu outchan
-                converse cactions
+            Conversation
+                serializeSnd
+                serializeRcv
+                (converse :: ConversationActions snd rcv -> IO t) -> do
+                    let msgCode = messageCode (Proxy :: Proxy snd)
+                        cactions :: ConversationActions snd rcv
+                        cactions = nodeConversationActions
+                            nodeUnit
+                            nodeId
+                            serializeSnd
+                            serializeRcv
+                            inchan
+                            outchan
+                    pack serializeMessageCode msgCode >>= LL.writeMany mtu outchan
+                    converse cactions
 
 
 -- | Conversation actions for a given peer and in/out channels.
 nodeConversationActions
-    :: forall packing peerData snd rcv .
-       ( Serializable packing snd
-       , Serializable packing rcv
-       )
-    => LL.Node packing peerData
+    :: forall packingType peerData snd rcv .
+       LL.Node packingType peerData
     -> LL.NodeId
-    -> Packing packing IO
+    -> Serializable packingType IO snd
+    -> Serializable packingType IO rcv
     -> ChannelIn
     -> ChannelOut
     -> ConversationActions snd rcv
-nodeConversationActions node _ packing inchan outchan =
+nodeConversationActions node _ serializeSnd serializeRcv inchan outchan =
     ConversationActions nodeSend nodeRecv nodeSendRaw
     where
 
     mtu = LL.nodeMtu (LL.nodeEnvironment node)
 
     nodeSend = \body ->
-        pack packing body >>= nodeSendRaw
+        pack serializeSnd body >>= nodeSendRaw
 
     nodeRecv :: Word32 -> IO (Maybe rcv)
     nodeRecv limit = do
-        next <- recvNext packing (fromIntegral limit :: Int) inchan
+        next <- recvNext serializeRcv (fromIntegral limit :: Int) inchan
         case next of
             End     -> pure Nothing
             Input t -> pure (Just t)
@@ -236,37 +242,35 @@ manualNodeEndPoint ep _ = LL.NodeEndPoint {
 --   this time there are any listeners running, they will be allowed to
 --   finish.
 node
-    :: forall packing peerData t .
-       ( Serializable packing MessageCode
-       , Serializable packing peerData
-       )
-    => Trace IO (Severity, T.Text)
+    :: forall packingType peerData t .
+       Trace IO (Severity, T.Text)
     -> (IO LL.Statistics -> LL.NodeEndPoint)
     -> (IO LL.Statistics -> LL.ReceiveDelay)
        -- ^ delay on receiving input events.
     -> (IO LL.Statistics -> LL.ReceiveDelay)
        -- ^ delay on receiving new connections.
     -> StdGen
-    -> Packing packing IO
+    -> Serializable packingType IO peerData
+    -> Serializable packingType IO MessageCode
     -> peerData
     -> LL.NodeEnvironment
-    -> (Node -> NodeAction packing peerData t)
+    -> (Node -> NodeAction packingType peerData t)
     -> IO t
-node logTrace mkEndPoint mkReceiveDelay mkConnectDelay prng packing peerData nodeEnv k = do
+node logTrace mkEndPoint mkReceiveDelay mkConnectDelay prng serializePeerData serializeMessageCode peerData nodeEnv k = do
     rec { let nId = LL.nodeId llnode
               endPoint = LL.nodeEndPoint llnode
               nodeUnit = Node nId endPoint (LL.nodeStatistics llnode)
-              NodeAction mkListeners (act :: Converse packing peerData -> IO t) = k nodeUnit
+              NodeAction mkListeners (act :: Converse packingType peerData -> IO t) = k nodeUnit
               -- Index the listeners by message name, for faster lookup.
               -- TODO: report conflicting names, or statically eliminate them using
               -- DataKinds and TypeFamilies.
-              listenerIndices :: peerData -> ListenerIndex packing peerData
+              listenerIndices :: peerData -> ListenerIndex packingType peerData 
               listenerIndices = fmap (fst . makeListenerIndex) mkListeners
-              converse :: Converse packing peerData
-              converse = nodeConverse llnode packing
+              converse :: Converse packingType peerData
+              converse = nodeConverse llnode serializeMessageCode
         ; llnode <- LL.startNode
+              serializePeerData
               logTrace
-              packing
               peerData
               (mkEndPoint . LL.nodeStatistics)
               (mkReceiveDelay . LL.nodeStatistics)
@@ -308,14 +312,20 @@ node logTrace mkEndPoint mkReceiveDelay mkConnectDelay prng packing peerData nod
         -- The understanding is that the Serializable instance for it against
         -- the given packing type shouldn't accept arbitrarily-long input (it's
         -- a Word16, surely it serializes to (2 + c) bytes for some c).
-        input <- recvNext packing maxBound inchan
+        input <- recvNext serializeMessageCode maxBound inchan
         case input of
             End -> traceWith logTrace (Debug, "handlerInOut : unexpected end of input")
             Input msgCode -> do
                 let listener = M.lookup msgCode listenerIndex
                 case listener of
-                    Just (Listener action) ->
-                        let cactions = nodeConversationActions nodeUnit peerId packing inchan outchan
+                    Just (Listener serializeSnd serializeRcv action) ->
+                        let cactions = nodeConversationActions
+                                nodeUnit
+                                peerId
+                                serializeSnd
+                                serializeRcv
+                                inchan
+                                outchan
                         in  action peerData peerId cactions
                     Nothing -> traceWith logTrace (Error, sformat ("no listener for "%shown) msgCode)
 
@@ -324,20 +334,18 @@ node logTrace mkEndPoint mkReceiveDelay mkConnectDelay prng packing peerData nod
 --
 --   An empty ByteString will never be passed to a decoder.
 recvNext
-    :: forall packing thing .
-       ( Serializable packing thing
-       )
-    => Packing packing IO
+    :: forall packingType rcv .
+       Serializable packingType IO rcv
     -> Int
     -> ChannelIn
-    -> IO (Input thing)
-recvNext packing limit (LL.ChannelIn channel) = readNonEmpty (return End) $ \bs -> do
+    -> IO (Input rcv)
+recvNext serializeRcv limit (LL.ChannelIn channel) = readNonEmpty (return End) $ \bs -> do
     -- limit' is the number of bytes that 'go' is allowed to pull.
     -- It's assumed that reading from the channel will bring in at most
     -- some limited number of bytes, so 'go' may bring in at most this
     -- many more than the limit.
     let limit' = limit - BS.length bs
-    decoderStep <- runDecoder (unpack packing)
+    decoderStep <- runDecoder (unpack serializeRcv)
     (trailing, outcome) <- continueDecoding decoderStep bs >>= go limit'
     unless (BS.null trailing) (atomically $ unGetTChan channel (Just trailing))
     return outcome

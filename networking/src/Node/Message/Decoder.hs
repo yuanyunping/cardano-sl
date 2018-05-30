@@ -28,7 +28,7 @@ newtype Decoder m t = Decoder {
     }
 
 hoistDecoder
-    :: ( Functor n )
+    :: Functor n
     => (forall a . m a -> n a)
     -> Decoder m t
     -> Decoder n t
@@ -47,7 +47,7 @@ hoistDecoderStep nat step = case step of
 -- | Feed input through a decoder.
 --
 continueDecoding
-    :: ( Monad m )
+    :: Monad m
     => DecoderStep m t
     -> BS.ByteString
     -> m (DecoderStep m t)

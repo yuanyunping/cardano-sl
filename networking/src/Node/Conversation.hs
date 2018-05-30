@@ -28,8 +28,10 @@ converseWith = runConverse
 --   Serializable receive type.
 data Conversation packingType t where
     Conversation
-        :: (Serializable packingType snd, Serializable packingType rcv, Message snd)
-        => (ConversationActions snd rcv -> IO t)
+        :: Message snd
+        => Serializable packingType IO snd
+        -> Serializable packingType IO rcv
+        -> (ConversationActions snd rcv -> IO t)
         -> Conversation packingType t
 
 data ConversationActions body rcv = ConversationActions {

@@ -72,7 +72,7 @@ import           Node (Conversation (..), ConversationActions (..),
                      NodeEnvironment, NodeId, converseWith, noReceiveDelay,
                      node, nodeId, simpleNodeEndPoint)
 import           Node.Conversation (Converse)
-import           Node.Message.Binary (BinaryP, binaryPacking)
+import           Node.Message.Binary (BinaryP, binarySerialization)
 import           Pos.Util.Trace (wlogTrace)
 
 -- | Run a computation, but kill it if it takes more than a given number of
@@ -190,7 +190,7 @@ sendAll
 sendAll converse peerId msgs =
     timeout "sendAll" 30000000 $
         void . converseWith converse peerId $
-            \_ -> Conversation $ \cactions -> forM_ msgs $
+            \_ -> Conversation binarySerialization binarySerialization $ \cactions -> forM_ msgs $
                 \msg -> do
                     send cactions msg
                     (_ :: Maybe Bool) <- recv cactions maxBound
@@ -206,7 +206,7 @@ receiveAll
 -- The sender awaits a response for each message. This ensures that the
 -- sender doesn't finish before the conversation SYN/ACK completes.
 receiveAll handler =
-    Listener @_ @_ @Bool $ \_ _ cactions ->
+    Listener binarySerialization binarySerialization $ \_ _ cactions ->
         let loop = do mmsg <- recv cactions maxBound
                       case mmsg of
                           Nothing -> pure ()
@@ -258,7 +258,7 @@ deliveryTest transport nodeEnv testState workers listeners = do
     clientFinished <- newEmptyMVar
     serverFinished <- newEmptyMVar
 
-    let server = node logTrace (simpleNodeEndPoint transport) (const noReceiveDelay) (const noReceiveDelay) prng1 binaryPacking () nodeEnv $ \serverNode -> do
+    let server = node logTrace (simpleNodeEndPoint transport) (const noReceiveDelay) (const noReceiveDelay) prng1 binarySerialization binarySerialization () nodeEnv $ \serverNode -> do
             NodeAction (const listeners) $ \_ -> do
                 -- Give our address to the client.
                 putMVar serverAddressVar (nodeId serverNode)
@@ -269,7 +269,7 @@ deliveryTest transport nodeEnv testState workers listeners = do
                 -- Allow the client to stop.
                 putMVar serverFinished ()
 
-    let client = node logTrace (simpleNodeEndPoint transport) (const noReceiveDelay) (const noReceiveDelay) prng2 binaryPacking () nodeEnv $ \_ ->
+    let client = node logTrace (simpleNodeEndPoint transport) (const noReceiveDelay) (const noReceiveDelay) prng2 binarySerialization binarySerialization () nodeEnv $ \_ ->
             NodeAction (const []) $ \converse -> do
                 serverAddress <- takeMVar serverAddressVar
                 let act = void . forConcurrently workers $ \worker ->
