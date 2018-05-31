@@ -15167,6 +15167,7 @@ license = stdenv.lib.licenses.mit;
 , cpphs
 , cryptonite
 , data-default
+, deepseq
 , digest
 , directory
 , extra
@@ -15221,6 +15222,7 @@ cardano-sl-util
 cborg
 cereal
 containers
+deepseq
 digest
 formatting
 half
@@ -15234,6 +15236,7 @@ serokell-util
 tagged
 template-haskell
 text
+text-format
 th-utilities
 time-units
 transformers
@@ -15505,6 +15508,7 @@ cardano-sl-core
 cardano-sl-core-test
 cardano-sl-crypto
 cardano-sl-crypto-test
+cardano-sl-delegation
 cardano-sl-delegation-test
 cardano-sl-ssc
 cardano-sl-txp-test
@@ -15870,6 +15874,7 @@ log-warper
 memory
 mtl
 plutus-prototype
+QuickCheck
 random
 reflection
 safe-exceptions
@@ -16182,6 +16187,7 @@ license = stdenv.lib.licenses.mit;
 , cardano-sl-core
 , cardano-sl-crypto
 , cardano-sl-util
+, cborg
 , concurrent-extra
 , conduit
 , containers
@@ -16219,6 +16225,7 @@ cardano-sl-binary
 cardano-sl-core
 cardano-sl-crypto
 cardano-sl-util
+cborg
 concurrent-extra
 conduit
 containers
@@ -16681,6 +16688,7 @@ libraryHaskellDepends = [
 base
 bytestring
 cardano-sl
+cardano-sl-binary
 cardano-sl-block
 cardano-sl-client
 cardano-sl-core
@@ -17171,6 +17179,7 @@ license = stdenv.lib.licenses.mit;
 , base
 , binary
 , bytestring
+, cardano-sl-binary
 , cardano-sl-util
 , containers
 , contravariant
@@ -17230,6 +17239,7 @@ attoparsec
 base
 binary
 bytestring
+cardano-sl-binary
 cardano-sl-util
 containers
 cryptonite
@@ -19365,8 +19375,8 @@ version = "0.2.0.0";
 src = fetchgit {
 
 url = "https://github.com/well-typed/cborg";
-sha256 = "1w06annk6nm01brd60hzl15143cvjvsaam9lhwzpmppyvgb0cdyz";
-rev = "3d274c14ca3077c3a081ba7ad57c5182da65c8c1";
+sha256 = "1pz27j7gzngkjkf2smksqq61isy1ji61pjaz6mngwnk9ryr6aqa0";
+rev = "9220cefbf58617697edbbe51aba97bda79e5c53d";
 
 };
 postUnpack = "sourceRoot+=/cborg; echo source root reset to $sourceRoot";
