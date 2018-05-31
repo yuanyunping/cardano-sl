@@ -12,7 +12,6 @@ import qualified Data.Text.Buildable as Buildable
 import           Formatting (bprint, build, int, stext, (%))
 import           Serokell.Util (Color (Magenta), colorize, listJson)
 
-import           Pos.Binary.Class (Bi)
 import           Pos.Core.Block.Blockchain (GenericBlock (..),
                      GenericBlockHeader (..))
 import           Pos.Core.Block.Main.Lens (mainBlockBlockVersion,
@@ -35,8 +34,7 @@ import           Pos.Core.Update (HasBlockVersion (..), HasSoftwareVersion (..))
 
 instance NFData (MainBlock attr)
 
-instance Bi (BlockHeader attr) =>
-         Buildable (MainBlockHeader attr) where
+instance Buildable (MainBlockHeader attr) where
     build gbh@UnsafeGenericBlockHeader {..} =
         bprint
             ("MainBlockHeader:\n"%
@@ -60,7 +58,7 @@ instance Bi (BlockHeader attr) =>
         gbhHeaderHash = blockHeaderHash $ BlockHeaderMain gbh
         MainConsensusData {..} = _gbhConsensus
 
-instance Bi (BlockHeader attr) => Buildable (MainBlock attr) where
+instance Buildable (MainBlock attr) where
     build UnsafeGenericBlock {..} =
         bprint
             (stext%":\n"%
@@ -95,12 +93,10 @@ instance HasEpochOrSlot (MainBlockHeader attr) where
 instance HasEpochOrSlot (MainBlock attr) where
     getEpochOrSlot = getEpochOrSlot . _gbHeader
 
-instance Bi (BlockHeader attr) =>
-         HasHeaderHash (MainBlockHeader attr) where
+instance HasHeaderHash (MainBlockHeader attr) where
     headerHash = blockHeaderHash . BlockHeaderMain
 
-instance Bi (BlockHeader attr) =>
-         HasHeaderHash (MainBlock attr) where
+instance HasHeaderHash (MainBlock attr) where
     headerHash = blockHeaderHash . BlockHeaderMain . _gbHeader
 
 instance HasDifficulty MainConsensusData where
@@ -130,8 +126,8 @@ instance HasBlockVersion (MainBlockHeader attr) where
 instance HasSoftwareVersion (MainBlockHeader attr) where
     softwareVersionL = mainHeaderSoftwareVersion
 
-instance Bi (BlockHeader attr) => IsHeader (MainBlockHeader attr)
+instance IsHeader (MainBlockHeader attr)
 
-instance Bi (BlockHeader attr) => IsMainHeader (MainBlockHeader attr) where
+instance IsMainHeader (MainBlockHeader attr) where
     headerSlotL = mainHeaderSlot
     headerLeaderKeyL = mainHeaderLeaderKey

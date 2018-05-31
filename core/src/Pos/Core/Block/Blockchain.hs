@@ -37,13 +37,14 @@ module Pos.Core.Block.Blockchain
 
 import           Universum
 
+import           Codec.CBOR.Decoding (peekByteOffset)
 import           Control.Lens (makeLenses)
 import           Control.Monad.Except (MonadError (throwError))
 import           Data.SafeCopy (SafeCopy (..), contain, safeGet, safePut)
 import           Formatting (build, sformat, (%))
 
-import           Pos.Binary.Class (Bi (..), DecoderAttr (..), DecoderAttrKind (..), encodeListLen,
-                     enforceSize)
+import           Pos.Binary.Class (Bi (..), BiExtRep (..), Decoder, DecoderAttr (..), DecoderAttrKind (..),
+                     encodeListLen, enforceSize, spliceExtRep')
 import           Pos.Crypto (ProtocolMagic (..))
 
 ----------------------------------------------------------------------------
@@ -152,6 +153,23 @@ instance ( Typeable b
         let _gbhDecoderAttr = DecoderAttrNone
         pure UnsafeGenericBlockHeader {..}
 
+instance ( Typeable b
+         , Bi (BHeaderHash b)
+         , Bi (BodyProof b)
+         , Bi (ConsensusData b)
+         , Bi (ExtraHeaderData b)
+         ) => BiExtRep (GenericBlockHeader b) where
+    spliceExtRep bs h = h
+        { _gbhDecoderAttr = (spliceExtRep' bs $ _gbhDecoderAttr h) }
+    forgetExtRep h = h { _gbhDecoderAttr = DecoderAttrNone }
+
+    decodeWithOffsets :: forall s. Decoder s (GenericBlockHeader b 'AttrOffsets)
+    decodeWithOffsets = do
+        start <- peekByteOffset
+        bh <- decode @(GenericBlockHeader b 'AttrNone)
+        end <- peekByteOffset
+        return $ bh { _gbhDecoderAttr = (DecoderAttrOffsets start end) }
+
 instance
     ( NFData (BHeaderHash b)
     , NFData (BodyProof b)
@@ -231,6 +249,38 @@ instance ( Typeable b
         _gbExtra  <- decode
         let _gbDecoderAttr = DecoderAttrNone
         pure UnsafeGenericBlock {..}
+
+instance ( Typeable b
+         , Bi (BHeaderHash b)
+         , Bi (BodyProof b)
+         , Bi (ConsensusData b)
+         , Bi (ExtraHeaderData b)
+         , Bi (Body b)
+         , Bi (ExtraBodyData b)
+         ) =>
+         BiExtRep (GenericBlock b) where
+    spliceExtRep bs (UnsafeGenericBlock {..}) =
+        UnsafeGenericBlock
+            (spliceExtRep bs $ _gbHeader)
+            (_gbBody)
+            (_gbExtra)
+            (spliceExtRep' bs _gbDecoderAttr)
+    forgetExtRep (UnsafeGenericBlock {..})
+        = UnsafeGenericBlock
+            (forgetExtRep _gbHeader)
+            _gbBody
+            _gbExtra
+            DecoderAttrNone
+
+    decodeWithOffsets = do
+        start <- peekByteOffset
+        enforceSize "GenericBlock" 3
+        _gbHeader <- decodeWithOffsets
+        _gbBody   <- decode
+        _gbExtra  <- decode
+        end <- peekByteOffset
+        let _gbDecoderAttr = DecoderAttrOffsets start end
+        return $ UnsafeGenericBlock {..}
 
 -- Derived partially in Instances
 --instance

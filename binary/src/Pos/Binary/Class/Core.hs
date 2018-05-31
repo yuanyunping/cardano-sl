@@ -1,14 +1,16 @@
-{-# LANGUAGE DeriveAnyClass   #-}
-{-# LANGUAGE DataKinds        #-}
-{-# LANGUAGE GADTs            #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies     #-}
-{-# LANGUAGE TypeOperators    #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE DefaultSignatures #-}
 
 -- | Bi typeclass and most basic functions.
 
 module Pos.Binary.Class.Core
     ( Bi(..)
+    , BiExtRep(..)
     , encodeBinary
     , decodeBinary
     , enforceSize
@@ -32,6 +34,7 @@ module Pos.Binary.Class.Core
     -- * Utils
     , toCborError
     , cborError
+    , spliceExtRep'
     ) where
 
 import           Universum
@@ -135,8 +138,17 @@ instance NFData (DecoderAttr attr) where
     rnf (DecoderAttrOffsets !_ !_) = ()
     rnf (DecoderAttrExtRep !_) = ()
 
+-- | Helper function useful when implementing `spliceExtRep`.
+spliceExtRep' :: ByteString -> DecoderAttr 'AttrOffsets -> DecoderAttr 'AttrExtRep
+spliceExtRep' bs (DecoderAttrOffsets n m) = DecoderAttrExtRep
+    $ BS.take (fromIntegral $ m - n)
+    $ BS.drop (fromIntegral n)
+    $ bs
+
 ----------------------------------------
 
+-- |
+-- Binary encoding / decoding based on cborg library.
 class Typeable a => Bi a where
     encode :: a -> E.Encoding
     decode :: D.Decoder s a
@@ -149,6 +161,22 @@ class Typeable a => Bi a where
 
     decodeList :: D.Decoder s [a]
     decodeList = defaultDecodeList
+
+-- |
+-- Binary encoding / decoding based on cborg library with decoding external
+-- representation.
+class Typeable a => BiExtRep (a :: DecoderAttrKind -> *) where
+    -- | Encode using CBOR @'Encoding'@.
+    encodeExtRep        :: a 'AttrExtRep -> E.Encoding
+    -- | Recursively decode with attribute offsets.
+    decodeWithOffsets   :: D.Decoder s (a 'AttrOffsets)
+    -- | Recursively splice external representation from byte offsets.
+    spliceExtRep        :: ByteString -> a 'AttrOffsets -> a 'AttrExtRep
+    -- | Recursively forget external representation.
+    forgetExtRep        :: a attr -> a 'AttrNone
+
+    default encodeExtRep :: Bi (a 'AttrNone) => a 'AttrExtRep -> E.Encoding
+    encodeExtRep = encode . forgetExtRep
 
 -- | Default @'E.Encoding'@ for list types.
 defaultEncodeList :: Bi a => [a] -> E.Encoding

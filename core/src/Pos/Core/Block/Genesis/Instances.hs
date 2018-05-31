@@ -12,7 +12,6 @@ import qualified Data.Text.Buildable as Buildable
 import           Formatting (bprint, build, int, sformat, stext, (%))
 import           Serokell.Util (Color (Magenta), colorize)
 
-import           Pos.Binary.Class (Bi)
 import           Pos.Core.Block.Blockchain (GenericBlock (..),
                      GenericBlockHeader (..), gbHeader, gbhConsensus)
 import           Pos.Core.Block.Genesis.Lens (gcdDifficulty, gcdEpoch)
@@ -32,7 +31,7 @@ instance NFData (GenesisBlock attr)
 -- Buildable
 ----------------------------------------------------------------------------
 
-instance Bi (BlockHeader attr) => Buildable (GenesisBlockHeader attr) where
+instance Buildable (GenesisBlockHeader attr) where
     build gbh@UnsafeGenericBlockHeader {..} =
         bprint
             ("GenesisBlockHeader:\n"%
@@ -50,7 +49,7 @@ instance Bi (BlockHeader attr) => Buildable (GenesisBlockHeader attr) where
         gbhHeaderHash = blockHeaderHash $ BlockHeaderGenesis gbh
         GenesisConsensusData {..} = _gbhConsensus
 
-instance Bi (BlockHeader attr) => Buildable (GenesisBlock attr) where
+instance Buildable (GenesisBlock attr) where
     build UnsafeGenericBlock {..} =
         bprint
             (stext%":\n"%
@@ -78,12 +77,10 @@ instance HasEpochOrSlot (GenesisBlockHeader attr) where
 instance HasEpochOrSlot (GenesisBlock attr) where
     getEpochOrSlot = getEpochOrSlot . _gbHeader
 
-instance Bi (BlockHeader attr) =>
-         HasHeaderHash (GenesisBlockHeader attr) where
+instance HasHeaderHash (GenesisBlockHeader attr) where
     headerHash = blockHeaderHash . BlockHeaderGenesis
 
-instance Bi (BlockHeader attr) =>
-         HasHeaderHash (GenesisBlock attr) where
+instance HasHeaderHash (GenesisBlock attr) where
     headerHash = blockHeaderHash . BlockHeaderGenesis . _gbHeader
 
 instance HasDifficulty GenesisConsensusData where
@@ -95,5 +92,5 @@ instance HasDifficulty (GenesisBlockHeader attr) where
 instance HasDifficulty (GenesisBlock attr) where
     difficultyL = gbHeader . difficultyL
 
-instance Bi (BlockHeader attr) => IsHeader (GenesisBlockHeader attr)
-instance Bi (BlockHeader attr) => IsGenesisHeader (GenesisBlockHeader attr)
+instance IsHeader (GenesisBlockHeader attr)
+instance IsGenesisHeader (GenesisBlockHeader attr)
