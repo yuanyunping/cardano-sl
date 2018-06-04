@@ -28,8 +28,8 @@ packBinary =
     . Bin.execPut
 
 fromBinaryDecoder :: Applicative m => Bin.Decoder t -> DecoderStep m t
-fromBinaryDecoder (Bin.Done bs bo t)   = Done bs bo t
-fromBinaryDecoder (Bin.Fail bs bo err) = Fail bs bo (T.pack err)
+fromBinaryDecoder (Bin.Done bs bo t)   = Done bs (fromIntegral bo) t
+fromBinaryDecoder (Bin.Fail bs bo err) = Fail bs (fromIntegral bo) (T.pack err)
 fromBinaryDecoder (Bin.Partial k)      = Partial (Decoder . pure . fromBinaryDecoder . k)
 
 binarySerialization

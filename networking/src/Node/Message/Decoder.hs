@@ -13,10 +13,9 @@ module Node.Message.Decoder
     ) where
 
 import qualified Data.ByteString as BS
-import           Data.Int (Int64)
 import qualified Data.Text as T
 
-type ByteOffset = Int64
+type ByteOffset = Word
 
 data DecoderStep m t =
       Done !BS.ByteString !ByteOffset !t
