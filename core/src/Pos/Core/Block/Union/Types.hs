@@ -10,6 +10,7 @@ module Pos.Core.Block.Union.Types
        ( BlockHeader (BlockHeaderGenesis, BlockHeaderMain)
        , _BlockHeaderGenesis
        , _BlockHeaderMain
+       , eitherBlockHeader
        , choosingBlockHeader
        , Block
 
