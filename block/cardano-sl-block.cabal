@@ -157,6 +157,7 @@ test-suite test
                      , cardano-sl-core-test
                      , cardano-sl-crypto
                      , cardano-sl-crypto-test
+                     , cardano-sl-delegation
                      , cardano-sl-delegation-test
                      , cardano-sl-ssc
                      , cardano-sl-txp-test
@@ -186,7 +187,6 @@ test-suite test
   if os(linux)
     ghc-options:       -optl-fuse-ld=gold
     ld-options:        -fuse-ld=gold
-
 
   default-extensions:   NoImplicitPrelude
 
