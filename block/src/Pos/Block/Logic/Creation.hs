@@ -29,7 +29,8 @@ import           Pos.Block.Logic.Internal (MonadBlockApply, applyBlocksUnsafe,
                      normalizeMempool)
 import           Pos.Block.Logic.Types (VerifyBlocksContext (..))
 import           Pos.Block.Logic.Util (calcChainQualityM)
-import           Pos.Block.Logic.VAR (verifyBlocksPrefix, getVerifyBlocksContext)
+import           Pos.Block.Logic.VAR (getVerifyBlocksContext,
+                     verifyBlocksPrefix)
 import           Pos.Block.Lrc (LrcModeFull, lrcSingleShot)
 import           Pos.Block.Slog (HasSlogGState (..), ShouldCallBListener (..))
 import           Pos.Core (Blockchain (..), EpochIndex, EpochOrSlot (..),
