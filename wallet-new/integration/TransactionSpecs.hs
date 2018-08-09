@@ -124,13 +124,13 @@ spendTooMuchMoney wc wallet = do
     shouldFail $ postTransaction wc payment
 
 payFromExternalWalletToExternal
-  :: HasCallStack
-  => WalletClient IO
-  -> WalletClient IO
-  -> Wallet
-  -> WhichSK
-  -> (Wallet, Address)
-  -> IO ()
+    :: HasCallStack
+    => WalletClient IO
+    -> WalletClient IO
+    -> Wallet
+    -> WhichSK
+    -> (Wallet, Address)
+    -> IO ()
 payFromExternalWalletToExternal clientA clientB genesisWallet key (dstExtWallet, dstWalletAddress) = do
     -- Create genesis wallet, it is initial source of money,
     -- we will use it to send money to the source wallet before test payment.
@@ -264,19 +264,19 @@ randomAddressIndex = generate arbitrary
 
 
 makePaymentFromExternalWallet
-     :: HasCallStack
-     => WalletClient IO
-     -> Word64
-     -> Wallet
-     -> Account
-     -> Wallet
-     -> Address
-     -> Address
-     -> Address
-     -> SecretKey
-     -> PublicKey
-     -> PublicKey
-     -> IO ()
+    :: HasCallStack
+    => WalletClient IO
+    -> Word64
+    -> Wallet
+    -> Account
+    -> Wallet
+    -> Address
+    -> Address
+    -> Address
+    -> SecretKey
+    -> PublicKey
+    -> PublicKey
+    -> IO ()
 
 makePaymentFromExternalWallet
         wc

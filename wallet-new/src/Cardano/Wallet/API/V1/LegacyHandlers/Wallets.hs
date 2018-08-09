@@ -10,7 +10,6 @@ import qualified Data.Map.Strict as Map
 import           Formatting (build, sformat)
 import           Universum
 import           UnliftIO (MonadUnliftIO)
--- import           System.Wlog (logDebug)
 
 import qualified Pos.Wallet.Web.ClientTypes.Types as V0
 import qualified Pos.Wallet.Web.Methods as V0

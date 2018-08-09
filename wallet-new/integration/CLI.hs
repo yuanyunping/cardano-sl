@@ -38,31 +38,33 @@ optionsParser = do
         <> showDefault
 
     serverPort0 <- option auto $
-        long        "server-port"
-       <> metavar   "PORT0"
-       <> value     8090
-       <> help      "Server port"
+        long        "server-port0"
+       <> metavar   "PORT"
+       <> value     3001
+       <> help      "Server port of node 0"
        <> showDefault
 
+-- WIP: integration tests that make transfers between wallets on several nodes.
+-- These options allow one to set the server ports of three additional nodes.
     serverPort1 <- option auto $
-        long        "server-port"
-       <> metavar   "PORT1"
-       <> value     8091
-       <> help      "Server port"
+        long        "server-port1"
+       <> metavar   "PORT"
+       <> value     3002
+       <> help      "Server port of node 1"
        <> showDefault
 
     serverPort2 <- option auto $
-        long        "server-port"
-       <> metavar   "PORT2"
-       <> value     8092
-       <> help      "Server port"
+        long        "server-port2"
+       <> metavar   "PORT"
+       <> value     3003
+       <> help      "Server port of node 2"
        <> showDefault
 
     serverPort3 <- option auto $
-        long        "server-port"
+        long        "server-port3"
        <> metavar   "PORT3"
-       <> value     8093
-       <> help      "Server port"
+       <> value     3004
+       <> help      "Server port of node 3"
        <> showDefault
 
     pure CLOptions{..}

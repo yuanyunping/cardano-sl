@@ -569,13 +569,13 @@ instance Arbitrary NewExternalWallet where
                                 <*> arbitrary
 
 instance ToSchema NewExternalWallet where
-  declareNamedSchema =
-    genericSchemaDroppingPrefix "newewal" (\(--^) props -> props
-      & ("extPubKey"      --^ "Base58-encoded extended public key used as external Wallet's id")
-      & ("assuranceLevel" --^ "Desired assurance level based on the number of confirmations counter of each transaction.")
-      & ("name"           --^ "External Wallet's name")
-      & ("operation"      --^ "Create a new external wallet or Restore an existing one")
-    )
+    declareNamedSchema =
+        genericSchemaDroppingPrefix "newewal" (\(--^) props -> props
+             & ("extPubKey"      --^ "Base58-encoded extended public key used as external Wallet's id")
+             & ("assuranceLevel" --^ "Desired assurance level based on the number of confirmations counter of each transaction.")
+             & ("name"           --^ "External Wallet's name")
+             & ("operation"      --^ "Create a new external wallet or Restore an existing one")
+             )
 
 deriveSafeBuildable ''NewExternalWallet
 instance BuildableSafeGen NewExternalWallet where
@@ -941,12 +941,12 @@ data ExternalWallet = ExternalWallet
 deriveJSON Serokell.defaultOptions ''ExternalWallet
 
 instance ToSchema ExternalWallet where
-  declareNamedSchema =
-    genericSchemaDroppingPrefix "ewal" (\(--^) props -> props
-      & ("id"      --^ "Unique wallet identifier")
-      & ("name"    --^ "Wallet's name")
-      & ("balance" --^ "Current balance, in ADA")
-    )
+    declareNamedSchema =
+        genericSchemaDroppingPrefix "ewal" (\(--^) props -> props
+            & ("id"      --^ "Unique wallet identifier")
+            & ("name"    --^ "Wallet's name")
+            & ("balance" --^ "Current balance, in ADA")
+            )
 
 instance Arbitrary ExternalWallet where
   arbitrary = ExternalWallet <$> arbitrary
@@ -1192,11 +1192,11 @@ instance ToSchema AddressLevel where
     declareNamedSchema _ = do
         NamedSchema _ word32Schema <- declareNamedSchema (Proxy @Word32)
         pure $ NamedSchema (Just "AddressLevel") $ word32Schema
-          & description ?~ mconcat
-            [ "Address path level according to BIP-32 definition. "
-            , "Levels in the (0..2^31-1) range are treated as normal, "
-            , "those in the (2^31..2^32-1) range are treated as hardened."
-            ]
+            & description ?~ mconcat
+                [ "Address path level according to BIP-32 definition. "
+                , "Levels in the (0..2^31-1) range are treated as normal, "
+                , "those in the (2^31..2^32-1) range are treated as hardened."
+                ]
 
 instance Arbitrary AddressLevel where
     arbitrary = oneof
@@ -1226,20 +1226,20 @@ newtype IsChangeAddress = IsChangeAddress Bool deriving (Show, Eq)
 --   - https://github.com/satoshilabs/slips/blob/master/slip-0044.md
 --   - https://github.com/satoshilabs/slips/pull/123
 data AddressPath = AddressPath
-  { addrpathPurpose      :: AddressLevel
-  , addrpathCoinType     :: AddressLevel
-  , addrpathAccount      :: AddressLevel
-  , addrpathChange       :: AddressLevel
-  , addrpathAddressIndex :: AddressLevel
-  } deriving (Show, Eq, Generic)
+    { addrpathPurpose      :: AddressLevel
+    , addrpathCoinType     :: AddressLevel
+    , addrpathAccount      :: AddressLevel
+    , addrpathChange       :: AddressLevel
+    , addrpathAddressIndex :: AddressLevel
+    } deriving (Show, Eq, Generic)
 
 deriveJSON Serokell.defaultOptions ''AddressPath
 
 makeLensesFor
-  [ ("addrpathAccount", "account")
-  , ("addrpathChange", "change")
-  , ("addrpathAddressIndex", "addressIndex")
-  ] ''AddressPath
+    [ ("addrpathAccount", "account")
+    , ("addrpathChange", "change")
+    , ("addrpathAddressIndex", "addressIndex")
+    ] ''AddressPath
 
 instance ToSchema AddressPath where
     declareNamedSchema =
@@ -1472,9 +1472,9 @@ instance BuildableSafeGen Payment where
 -- If the payment will require the change 'TxOut' (and it mostly will),
 -- provided change address will be used for it.
 data PaymentWithChangeAddress = PaymentWithChangeAddress
-  { pmtwcaPayment       :: !Payment
-  , pmtwcaChangeAddress :: !Text    -- ^ Change address in Base58-format.
-  } deriving (Show, Eq, Generic)
+    { pmtwcaPayment       :: !Payment
+    , pmtwcaChangeAddress :: !Text    -- ^ Change address in Base58-format.
+    } deriving (Show, Eq, Generic)
 
 deriveJSON Serokell.defaultOptions ''PaymentWithChangeAddress
 
@@ -1483,11 +1483,11 @@ instance Arbitrary PaymentWithChangeAddress where
                                        <*> arbitrary
 
 instance ToSchema PaymentWithChangeAddress where
-  declareNamedSchema =
-    genericSchemaDroppingPrefix "pmtwca" (\(--^) props -> props
-      & ("payment"       --^ "Payment for unsigned transaction.")
-      & ("changeAddress" --^ "Change address that will be used for this payment.")
-    )
+    declareNamedSchema =
+        genericSchemaDroppingPrefix "pmtwca" (\(--^) props -> props
+            & ("payment"       --^ "Payment for unsigned transaction.")
+            & ("changeAddress" --^ "Change address that will be used for this payment.")
+            )
 
 deriveSafeBuildable ''PaymentWithChangeAddress
 instance BuildableSafeGen PaymentWithChangeAddress where
@@ -1757,20 +1757,20 @@ instance Buildable [AddressAndPath] where
 
 -- | A 'Wallet''s 'RawTransaction'.
 data RawTransaction = RawTransaction
-  { rtxHex          :: !Text             -- ^ Base16-encoded transaction CBOR binary blob.
-  , rtxSigDataHex   :: !Text             -- ^ Base16-encoded transaction data that will be signed externally.
-  , rtxSrcAddresses :: ![AddressAndPath] -- ^ Addresses (with derivation paths) which will be used as a sources of money.
-  } deriving (Show, Ord, Eq, Generic)
+    { rtxHex          :: !Text             -- ^ Base16-encoded transaction CBOR binary blob.
+    , rtxSigDataHex   :: !Text             -- ^ Base16-encoded transaction data that will be signed externally.
+    , rtxSrcAddresses :: ![AddressAndPath] -- ^ Addresses (with derivation paths) which will be used as a sources of money.
+    } deriving (Show, Ord, Eq, Generic)
 
 deriveJSON Serokell.defaultOptions ''RawTransaction
 
 instance ToSchema RawTransaction where
-  declareNamedSchema =
-    genericSchemaDroppingPrefix "rtx" (\(--^) props -> props
-      & ("hex"          --^ "New raw transaction in hex (Base16) format.")
-      & ("sigDataHex"   --^ "Transaction data that will be signed externally, in hex (Base16) format.")
-      & ("srcAddresses" --^ "Source addresses (with derivation paths), correspond to transaction inputs.")
-    )
+    declareNamedSchema =
+        genericSchemaDroppingPrefix "rtx" (\(--^) props -> props
+        & ("hex"          --^ "New raw transaction in hex (Base16) format.")
+        & ("sigDataHex"   --^ "Transaction data that will be signed externally, in hex (Base16) format.")
+        & ("srcAddresses" --^ "Source addresses (with derivation paths), correspond to transaction inputs.")
+        )
 
 instance Arbitrary RawTransaction where
     arbitrary = RawTransaction <$> arbitrary
@@ -1885,12 +1885,12 @@ instance Arbitrary WalletAndTxHistory where
 
 deriveSafeBuildable ''WalletAndTxHistory
 instance BuildableSafeGen WalletAndTxHistory where
-  buildSafeGen sl WalletAndTxHistory{..} = bprint ("{"
-    %" wallet="%buildSafe sl
-    %" transactions="%buildSafe sl
-    %" }")
-    waltxsWallet
-    waltxsTransactions
+    buildSafeGen sl WalletAndTxHistory{..} = bprint ("{"
+        %" wallet="%buildSafe sl
+        %" transactions="%buildSafe sl
+        %" }")
+        waltxsWallet
+        waltxsTransactions
 
 
 
