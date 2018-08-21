@@ -14,8 +14,7 @@ import           Ntp.Client (NtpStatus)
 
 import           Pos.Wallet.Web.Swagger.Spec (swaggerSpecForWalletApi)
 import           Servant.API ((:<|>) ((:<|>)))
-import           Servant.Generic (AsServerT, GenericProduct, ToServant,
-                     toServant)
+import           Servant.Server.Generic (genericServerT)
 import           Servant.Server (Handler, Server, ServerT, hoistServer)
 import           Servant.Swagger.UI (swaggerSchemaUIServer)
 
@@ -64,7 +63,7 @@ servantHandlers
     -> TVar NtpStatus
     -> (TxAux -> m Bool)
     -> ServerT A.WalletApi m
-servantHandlers genesisConfig txpConfig ntpStatus submitTx = toServant' A.WalletApiRecord
+servantHandlers genesisConfig txpConfig ntpStatus submitTx = genericServerT A.WalletApiRecord
     { _test        = testHandlers
     , _wallets     = walletsHandlers genesisConfig
     , _accounts    = accountsHandlers
@@ -83,14 +82,14 @@ servantHandlers genesisConfig txpConfig ntpStatus submitTx = toServant' A.Wallet
 -- branches of the API
 
 testHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WTestApi m
-testHandlers = toServant' A.WTestApiRecord
+testHandlers = genericServerT A.WTestApiRecord
     { _testReset = M.testResetAll
     , _testState = M.dumpState
     }
 
 walletsHandlers
     :: MonadFullWalletWebMode ctx m => Genesis.Config -> ServerT A.WWalletsApi m
-walletsHandlers genesisConfig = toServant' A.WWalletsApiRecord
+walletsHandlers genesisConfig = genericServerT A.WWalletsApiRecord
     { _getWallet              = M.getWallet
     , _getWallets             = M.getWallets
     , _newWallet              = M.newWallet
@@ -102,7 +101,7 @@ walletsHandlers genesisConfig = toServant' A.WWalletsApiRecord
     }
 
 accountsHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WAccountsApi m
-accountsHandlers = toServant' A.WAccountsApiRecord
+accountsHandlers = genericServerT A.WAccountsApiRecord
     { _getAccount    = M.getAccount
     , _getAccounts   = M.getAccounts
     , _updateAccount = M.updateAccount
@@ -111,13 +110,13 @@ accountsHandlers = toServant' A.WAccountsApiRecord
     }
 
 addressesHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WAddressesApi m
-addressesHandlers = toServant' A.WAddressesApiRecord
+addressesHandlers = genericServerT A.WAddressesApiRecord
     { _newAddress     = M.newAddress RandomSeed
     , _isValidAddress = M.isValidAddress
     }
 
 profileHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WProfileApi m
-profileHandlers = toServant' A.WProfileApiRecord
+profileHandlers = genericServerT A.WProfileApiRecord
     { _getProfile    = M.getUserProfile
     , _updateProfile = M.updateUserProfile
     }
@@ -128,7 +127,7 @@ txsHandlers
     -> TxpConfiguration
     -> (TxAux -> m Bool)
     -> ServerT A.WTxsApi m
-txsHandlers genesisConfig txpConfig submitTx = toServant' A.WTxsApiRecord
+txsHandlers genesisConfig txpConfig submitTx = genericServerT A.WTxsApiRecord
     { _newPayment                = M.newPayment genesisConfig txpConfig submitTx
     , _newPaymentBatch           = M.newPaymentBatch genesisConfig txpConfig submitTx
     , _txFee                     = M.getTxFee genesisConfig
@@ -141,7 +140,7 @@ txsHandlers genesisConfig txpConfig submitTx = toServant' A.WTxsApiRecord
     }
 
 updateHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WUpdateApi m
-updateHandlers = toServant' A.WUpdateApiRecord
+updateHandlers = genericServerT A.WUpdateApiRecord
     { _nextUpdate     = M.nextUpdate
     , _postponeUpdate = M.postponeUpdate
     , _applyUpdate    = M.applyUpdate
@@ -153,18 +152,18 @@ redemptionsHandlers
     -> TxpConfiguration
     -> (TxAux -> m Bool)
     -> ServerT A.WRedemptionsApi m
-redemptionsHandlers genesisConfig txpConfig submitTx = toServant' A.WRedemptionsApiRecord
+redemptionsHandlers genesisConfig txpConfig submitTx = genericServerT A.WRedemptionsApiRecord
     { _redeemADA          = M.redeemAda genesisConfig txpConfig submitTx
     , _redeemADAPaperVend = M.redeemAdaPaperVend genesisConfig txpConfig submitTx
     }
 
 reportingHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WReportingApi m
-reportingHandlers = toServant' A.WReportingApiRecord
+reportingHandlers = genericServerT A.WReportingApiRecord
     { _reportingInitialized = M.reportingInitialized
     }
 
 settingsHandlers :: MonadFullWalletWebMode ctx m => TVar NtpStatus -> ServerT A.WSettingsApi m
-settingsHandlers ntpStatus = toServant' A.WSettingsApiRecord
+settingsHandlers ntpStatus = genericServerT A.WSettingsApiRecord
     { _getSlotsDuration    = blockchainSlotDuration <&> fromIntegral
     , _getVersion          = pure curSoftwareVersion
     , _getSyncProgress     = M.syncProgress
@@ -172,28 +171,17 @@ settingsHandlers ntpStatus = toServant' A.WSettingsApiRecord
     }
 
 backupHandlers :: MonadFullWalletWebMode ctx m => Genesis.Config -> ServerT A.WBackupApi m
-backupHandlers genesisConfig = toServant' A.WBackupApiRecord
+backupHandlers genesisConfig = genericServerT A.WBackupApiRecord
     { _importBackupJSON = M.importWalletJSON genesisConfig
     , _exportBackupJSON = M.exportWalletJSON
     }
 
 infoHandlers :: (MonadFullWalletWebMode ctx m, HasCompileInfo) => ServerT A.WInfoApi m
-infoHandlers = toServant' A.WInfoApiRecord
+infoHandlers = genericServerT A.WInfoApiRecord
     { _getClientInfo = M.getClientInfo
     }
 
 systemHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WSystemApi m
-systemHandlers = toServant' A.WSystemApiRecord
+systemHandlers = genericServerT A.WSystemApiRecord
     { _requestShutdown = M.requestShutdown
     }
-
-----------------------------------------------------------------------------
--- Utilities
-----------------------------------------------------------------------------
-
--- | A type-restricted synonym for 'toServant' that lets us avoid some type
--- annotations
-toServant'
-    :: (a ~ r (AsServerT m), GenericProduct a)
-    => a -> ToServant a
-toServant' = toServant
