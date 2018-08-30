@@ -14,49 +14,37 @@
 module ConsumerProtocol where
 
 -- import           Data.Word
--- import           Control.Applicative
+import           Control.Applicative
 -- import           Control.Concurrent.STM (STM, retry)
 -- import           Control.Exception (assert)
 import           Control.Monad
 -- import           Control.Monad.ST.Lazy
 import           Control.Monad.Free (Free (..))
 import           Control.Monad.Free as Free
+import           Data.FingerTree (ViewL (..))
+import           Data.FingerTree as FT
 -- import           Data.STRef.Lazy
--- import           System.Random (StdGen, mkStdGen, randomR)
+import           System.Random (mkStdGen)
 
 -- import           Test.QuickCheck
 
-import           Block (Block, Point, ReaderId, blockPoint)
-import           Chain (ChainFragment (..), absChainFragment, applyChainUpdate, findIntersection)
+import           Block (Block (..), Point, ReaderId, blockPoint)
+import           Chain (Chain, ChainFragment (..), absChainFragment, applyChainUpdate, chain,
+                        findIntersection)
 import           Chain.Update (ChainUpdate (..))
 import           ChainExperiment2
 import           MonadClass
-import           Sim (SimChan (..), SimF, SimMVar (..), flipSimChan)
+import           Sim (SimChan (..), SimF, SimM, SimMVar (..), Trace, flipSimChan, runSimM)
 
 --
 -- IPC based protocol
 --
 
-data SendRecvF (chan :: * -> * -> *) a where
-  NewChanF :: (chan s r -> a) -> SendRecvF chan a
-  SendMsgF :: chan s r -> s -> a -> SendRecvF chan a
-  RecvMsgF :: chan s r -> (r -> a) -> SendRecvF chan a
-
-instance Functor (SendRecvF chan) where
-  fmap f (NewChanF k)     = NewChanF (f . k)
-  fmap f (SendMsgF c s a) = SendMsgF c s (f a)
-  fmap f (RecvMsgF c k)   = RecvMsgF c (f . k)
-
-instance MonadSendRecv (Free (SendRecvF chan)) where
-  type BiChan (Free (SendRecvF chan)) = chan
-  newChan        = Free.liftF $ NewChanF id
-  sendMsg chan s = Free.liftF $ SendMsgF chan s ()
-  recvMsg chan   = Free.liftF $ RecvMsgF chan id
-
 -- | In this protocol the consumer always initiates things and the producer
 -- replies. This is the type of messages that the consumer sends.
 data MsgConsumer = MsgRequestNext
                  | MsgSetHead Point [Point]
+    deriving (Show)
 
 -- | This is the type of messages that the producer sends.
 data MsgProducer = MsgRollForward  Block
@@ -64,6 +52,7 @@ data MsgProducer = MsgRollForward  Block
                  | MsgAwaitReply
                  | MsgIntersectImproved Point Point
                  | MsgIntersectUnchanged
+    deriving (Show)
 
 data ConsumerHandlers m = ConsumerHandlers {
        getChainPoints :: m (Point, [Point]),
@@ -74,9 +63,10 @@ data ConsumerHandlers m = ConsumerHandlers {
 consumerSideProtocol1 :: forall m.
                          (MonadSendRecv m, MonadSay m)
                       => ConsumerHandlers m
+                      -> Bool -- ^ finish on `MsgAwaitReply`
                       -> BiChan m MsgConsumer MsgProducer
                       -> m ()
-consumerSideProtocol1 ConsumerHandlers{..} chan = do
+consumerSideProtocol1 ConsumerHandlers{..} done chan = do
     -- The consumer opens by sending a list of points on their chain.
     -- This includes the head block and
     (hpoint, points) <- getChainPoints
@@ -88,23 +78,24 @@ consumerSideProtocol1 ConsumerHandlers{..} chan = do
     requestNext = do
       sendMsg chan MsgRequestNext
       reply <- recvMsg chan
-      handleChainUpdate reply
-      requestNext
+      k <- handleChainUpdate reply
+      when k
+        requestNext
 
-    handleChainUpdate :: MsgProducer -> m ()
-    handleChainUpdate MsgAwaitReply = do
-      say ("awaiting real reply")
+    handleChainUpdate :: MsgProducer -> m Bool
+    handleChainUpdate msg@MsgAwaitReply = do
+      say ("consumer: " ++ show msg)
+      return (not done)
 
-    handleChainUpdate (MsgRollForward  b) = do
+    handleChainUpdate msg@(MsgRollForward  b) = do
+      say ("consumer: " ++ show msg)
       addBlock b
-      say ("ap blocks from point X to point Y")
-      return ()
+      return True
 
-    handleChainUpdate (MsgRollBackward _) = do
-      -- TODO: finish
-      say ("rolling back N blocks from point X to point Y")
-      return ()
-
+    handleChainUpdate msg@(MsgRollBackward p) = do
+      say ("consumer: " ++ show msg)
+      rollbackTo p
+      return True
 
 data ProducerHandlers m r = ProducerHandlers {
        findIntersectionRange :: Point -> [Point] -> m (Maybe (Point, Point)),
@@ -114,6 +105,9 @@ data ProducerHandlers m r = ProducerHandlers {
        readChainUpdate       :: r -> m (ConsumeChain Block)
      }
 
+-- |
+-- TODO:
+--  * n-consumers to producer (currently 1-consumer to producer)
 producerSideProtocol1 :: forall m r.
                          (MonadSendRecv m, MonadSay m)
                       => ProducerHandlers m r
@@ -124,19 +118,25 @@ producerSideProtocol1 ProducerHandlers{..} chan =
   where
     awaitOpening = do
       -- The opening message must be this one, to establish the reader state
-      MsgSetHead hpoint points <- recvMsg chan
+      say "producer:awaitOpening"
+      msg@(MsgSetHead hpoint points) <- recvMsg chan
+      say $ "producer:awaitOpening:recvMsg: " ++ show msg
       intersection <- findIntersectionRange hpoint points
       case intersection of
         Just (pt, pt') -> do
           r <- establishReaderState hpoint pt
+          let msg = MsgIntersectImproved pt pt'
+          say $ "producer:awaitOpening:sendMsg: " ++ show msg
           sendMsg chan (MsgIntersectImproved pt pt')
           return r
         Nothing -> do
+          say $ "producer:awaitOpening:sendMsg: " ++ show MsgIntersectUnchanged
           sendMsg chan MsgIntersectUnchanged
           awaitOpening
 
     awaitOngoing r = forever $ do
       msg <- recvMsg chan
+      say $ "producer:awaitOngoing:recvMsg: " ++ show msg
       case msg of
         MsgRequestNext           -> handleNext r
         MsgSetHead hpoint points -> handleSetHead r hpoint points
@@ -148,8 +148,11 @@ producerSideProtocol1 ProducerHandlers{..} chan =
 
         -- Reader is at the head, have to wait for producer state changes.
         Nothing -> do
+          say $ "producer:handleNext:sendMsg: " ++ show MsgAwaitReply
           sendMsg chan MsgAwaitReply
           readChainUpdate r
+      let msg = updateMsg update
+      say $ "producer:handleNext:sendMsg: " ++ show msg
       sendMsg chan (updateMsg update)
 
     handleSetHead r hpoint points = do
@@ -160,10 +163,14 @@ producerSideProtocol1 ProducerHandlers{..} chan =
       case intersection of
         Just (pt, pt') -> do
           updateReaderState r hpoint (Just pt)
-          sendMsg chan (MsgIntersectImproved pt pt')
+          let msg = MsgIntersectImproved pt pt'
+          say $ "producer:handleSetHead:sendMsg: " ++ show msg
+          sendMsg chan msg
         Nothing -> do
           updateReaderState r hpoint Nothing
-          sendMsg chan MsgIntersectUnchanged
+          let msg = MsgIntersectUnchanged
+          say $ "producer:handleSetHead:sendMsg: " ++ show msg
+          sendMsg chan msg
 
     updateMsg (RollForward  b) = MsgRollForward b
     updateMsg (RollBackward p) = MsgRollBackward p
@@ -194,8 +201,10 @@ exampleProducer chainvar =
 
     tryReadChainUpdate :: ReaderId -> m (Maybe (ConsumeChain Block))
     tryReadChainUpdate rid =
-      modifyMVar chainvar $ \cps ->
-        return $ (swizzle cps $ readerInstruction (fst cps) rid)
+      modifyMVar chainvar $ \cps -> do
+        let res = readerInstruction (fst cps) rid
+        say ("tryReadChainUpdate: " ++ show (fmap snd res))
+        return $ (swizzle cps res)
       where
         swizzle cps       Nothing          = (cps, Nothing)
         swizzle (_, mcps) (Just (cps', x)) = ((cps', mcps), Just x)
@@ -203,7 +212,7 @@ exampleProducer chainvar =
     readChainUpdate :: ReaderId -> m (ConsumeChain Block)
     readChainUpdate rid = do
       -- block on the inner mvar
-      say ("blocking on updated for " ++ show rid)
+      say ("readChainUpdate: blocking on updated for " ++ show rid)
       cps <- readMVar chainvar >>= readMVar . snd
       case readerInstruction cps rid of
           Just (_, x) -> return x
@@ -240,6 +249,56 @@ exampleConsumer chainvar = ConsumerHandlers {..}
         _ <- tryPutMVar mcps cps'
         mcps' <- newEmptyMVar
         return (cps', mcps')
+
+-- |
+-- For a producer that is following n consumers (is subscribed to n-nodes)
+-- we will need `producerSideProtocol1` that is aware of all its subscriptions
+-- and has access to all channels.
+bindConsumersToProducer1
+    :: SimMVar s
+            ( ChainProducerState ChainFragment
+            , SimMVar s (ChainProducerState ChainFragment)
+            )
+    -> SimMVar s
+        ( ChainProducerState ChainFragment
+        , SimMVar s (ChainProducerState ChainFragment)
+        )
+bindConsumersToProducer1 = id
+
+-- |
+-- Simulate transfering a chain from a producer on a node-1 to a consumer on
+-- a node-2.
+sim1
+    :: Chain
+    -- ^ chain to reproduce on the consumer, ought to be non empty
+    -> SimM s ()
+sim1 chain@(ChainFragment ft) = do
+    chan <- newChan
+
+    -- run producer in a new thread
+    fork $ do
+        mcps <- newEmptyMVar
+        chainvar  <- newMVar (ChainProducerState chain [], mcps)
+        producerSideProtocol1 (exampleProducer chainvar) chan
+
+    -- run consumer
+    let genesisBlock = case viewl ft of
+            EmptyL -> error "sim1: chain is empty"
+            b :< _ -> b
+    mcps <- newEmptyMVar
+    chainvar <- newMVar
+      ( ChainProducerState (ChainFragment $ FT.fromList [genesisBlock, Block 5 1 2 ""]) []
+      , mcps
+      )
+    consumerSideProtocol1 (exampleConsumer chainvar) True (flipSimChan chan)
+
+    (ChainProducerState chain' _, _) <- readMVar chainvar
+    when (chain /= chain')
+      (fail $ "chains not equal: " ++ show chain')
+    say "Bye!"
+
+trace1 :: Trace
+trace1 = runSimM (mkStdGen 0) (sim1 chain)
 
 --
 -- Simulation of composition of producer and consumer

@@ -10,6 +10,7 @@ module Chain
     , lookupByIndexFromEnd
     , splitBeforeSlot
     , findIntersection
+    , findNext
 
     , addBlock
     , drop
@@ -33,12 +34,15 @@ module Chain
     , genChain
     , validChain
     , validChainFragment
+    , chain
 
     , TestChain (..)
     , prop_addBlock
     , prop_drop
     , prop_take
     , prop_append
+    , prop_reifyChainFragment
+    , prop_absChainFragment
     , invChain
     , prop_TestChain
 
@@ -47,7 +51,8 @@ module Chain
 
 import           Prelude hiding (drop, length, take)
 
-import           Data.FingerTree (FingerTree, Measured (..), ViewL (..), (<|))
+import           Data.FingerTree (FingerTree, Measured (..), SearchResult (..), ViewL (..),
+                                  ViewR (..), (<|), (|>))
 import qualified Data.FingerTree as FT
 import qualified Data.List as L
 
@@ -61,8 +66,12 @@ import           Chain.Update (ChainUpdate (..))
 -- Blockchain fragment data type.
 --
 
+-- |
+-- The chain grows to the right, it should never contain a block with slot `0`
+-- (it will not be possible to find it with `lookupBySlot`, since `minBound
+-- @Word == 0`.
 newtype ChainFragment = ChainFragment (FingerTree ChainMeasure Block)
-  deriving Show
+  deriving (Show, Eq)
 
 type Chain = ChainFragment
 
@@ -72,9 +81,14 @@ emptyChain = ChainFragment FT.empty
 fromList :: [Block] -> ChainFragment
 fromList = ChainFragment . FT.fromList
 
+-- |
+-- It assumes the chain is growing to the right.
 lookupBySlot :: ChainFragment -> Slot -> FT.SearchResult ChainMeasure Block
 lookupBySlot (ChainFragment t) s =
     FT.search (\vl vr -> maxSlot vl >= s && minSlot vr >= s) t
+
+chain :: ChainFragment
+chain = ChainFragment $ FT.fromList [Block 1 0 1 "", Block 2 1 2 "", Block 3 2 3 "", Block 4 3 10 "", Block 5 4 20 ""]
 
 lookupByIndexFromEnd :: ChainFragment -> Int -> FT.SearchResult ChainMeasure Block
 lookupByIndexFromEnd (ChainFragment t) n =
@@ -82,10 +96,21 @@ lookupByIndexFromEnd (ChainFragment t) n =
   where
     len = size (measure t)
 
+-- |
+-- Find next block after the given point
+findNext :: Point -> ChainFragment -> Maybe Block
+findNext p cf = case lookupBySlot cf (fst p) of
+    Position _ b ft'
+        | blockPoint b == p
+        -> case FT.viewl ft' of
+            n :< _ -> Just n
+            EmptyL -> Nothing
+    _ -> Nothing
+
 splitBeforeSlot :: ChainFragment -> Slot -> (ChainFragment, ChainFragment)
 splitBeforeSlot (ChainFragment t) s =
     (\(l, r) -> (ChainFragment l, ChainFragment r))
-  $ FT.split (\v -> maxSlot v < s) t
+  $ FT.split (\v -> maxSlot v >= s) t
 
 findIntersection :: Chain -> Point -> [Point] -> Maybe (Point, Point)
 findIntersection c hpoint points =
@@ -96,12 +121,12 @@ findIntersection c hpoint points =
         | pointOnChain c p' = Just (p', p)
         | otherwise         = go p' ps
 
-addBlock :: Block -> Chain -> Chain
-addBlock b (ChainFragment ft) = ChainFragment (b <| ft)
+addBlock :: Chain -> Block -> Chain
+addBlock (ChainFragment ft) b = ChainFragment (ft |> b)
 
 prop_addBlock :: Block -> Chain.Abs.Chain -> Bool
 prop_addBlock b c =
-    b : c == absChainFragment (b `addBlock` reifyChainFragment c)
+    b : c == absChainFragment (reifyChainFragment c `addBlock` b)
 
 drop :: Int -> Chain -> Chain
 drop n (ChainFragment ft) = ChainFragment $ FT.dropUntil (\v -> size v > n) ft
@@ -118,19 +143,19 @@ prop_take n c =
     L.take n c == absChainFragment (take n $ reifyChainFragment c)
 
 append :: [Block] -> Chain -> Chain
-append bs (ChainFragment r) = ChainFragment (foldr (<|) r bs)
+append bs (ChainFragment r) = ChainFragment (L.foldl' (|>) r bs)
 
 length :: ChainFragment -> Int
 length (ChainFragment ft) = size (measure ft)
 
 pointOnChain :: Chain -> Point -> Bool
-pointOnChain (ChainFragment ft) (_, bid) = go ft
+pointOnChain (ChainFragment ft) p = go ft
     where
-    -- recursivelly search the fingertree from the left
-    go t = case FT.viewl t of
-        EmptyL  -> False
-        b :< t' | blockId b == bid -> True
-                | otherwise        -> go t'
+    -- recursivelly search the fingertree from the right
+    go t = case FT.viewr t of
+        EmptyR                      -> False
+        t' :> b | blockPoint b == p -> True
+                | otherwise         -> go t'
 
 prop_append :: [Block] -> Chain.Abs.Chain -> Bool
 prop_append l r =
@@ -149,12 +174,12 @@ chainHeadSlot = maybe 0 blockSlot . chainHead
 
 -- This is the key operation on chains in this model
 applyChainUpdate :: ChainUpdate -> Chain -> Chain
-applyChainUpdate (AddBlock b) c = b `Chain.addBlock` c
+applyChainUpdate (AddBlock b) c = c `addBlock` b
 applyChainUpdate (RollBack p) (ChainFragment c) = ChainFragment $ go c
     where
-    go v = case FT.viewl v of
-        EmptyL  -> v
-        b :< v' | blockPoint b == p -> v'
+    go v = case FT.viewr v of
+        EmptyR  -> v
+        v' :> b | blockPoint b == p -> v
                 | otherwise         -> go v'
 
 applyChainUpdates :: [ChainUpdate] -> Chain -> Chain
@@ -168,16 +193,27 @@ chainBackwardsFrom :: Chain -> BlockId -> Chain
 chainBackwardsFrom c bid = go c
     where
     go :: Chain -> Chain
-    go c@(ChainFragment ft) = case FT.viewl ft of
-        EmptyL   -> c
-        b :< ft' | blockId b == bid -> ChainFragment (b <| ft')
+    go c@(ChainFragment ft) = case FT.viewr ft of
+        EmptyR   -> c
+        ft' :> b | blockId b == bid -> ChainFragment (ft' |> b)
                  | otherwise        -> go (ChainFragment ft')
 
 reifyChainFragment :: Chain.Abs.ChainFragment -> ChainFragment
-reifyChainFragment = fromList
+reifyChainFragment = fromList . reverse
 
+prop_reifyChainFragment :: Chain.Abs.ChainFragment -> Bool
+prop_reifyChainFragment bs =
+    absChainFragment (reifyChainFragment bs) == bs
+
+-- |
+-- Note the `foldl'`, this is that it's easy to append new blocks to the
+-- abstract representation.
 absChainFragment :: ChainFragment -> Chain.Abs.ChainFragment
-absChainFragment (ChainFragment ft) = foldr (:) [] ft
+absChainFragment (ChainFragment ft) = L.foldl' (flip (:)) [] ft
+
+prop_absChainFragment :: ChainFragment -> Bool
+prop_absChainFragment cf =
+    reifyChainFragment (absChainFragment cf) == cf
 
 validChain :: Chain -> Bool
 validChain = Chain.Abs.validChain . absChainFragment

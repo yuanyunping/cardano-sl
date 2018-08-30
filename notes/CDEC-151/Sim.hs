@@ -17,6 +17,7 @@ module Sim (
   runSimM,
   runSimMST,
 
+  Trace,
   TraceEvent (..),
   filterTrace,
 
@@ -135,7 +136,9 @@ data SimState s = SimState {
        runqueue :: ![Thread s],
        curTime  :: !VTime,
        timers   :: !(PQueue VTime (Action s)),
-       prng     :: !StdGen
+       prng     :: !StdGen,
+       threadId :: !Int,  -- ^ last thread id
+       vtagId   :: !Int   -- ^ last vtag id
      }
 
 --
@@ -144,21 +147,22 @@ data SimState s = SimState {
 
 type Trace = [(VTime, ThreadId, TraceEvent)]
 
-data TraceEvent = EventFail String
-                | EventSay [String]
-                | EventTimerCreated VTime
-                | EventTimerExpired
-                | EventThreadForked ThreadId
-                | EventThreadStopped
-                | EventCreatedMVar         MVarTag
-                | EventNonBlockingTookMVar MVarTag
-                | EventFailedTryTakeMVar   MVarTag
-                | EventBlockedOnTakeMVar   MVarTag
-                | EventUnblockedTakeMVar   MVarTag
-                | EventNonBlockingPutMVar  MVarTag
-                | EventFailedTryPutMVar    MVarTag
-                | EventBlockedOnPutMVar    MVarTag
-                | EventUnblockedPutMVar    MVarTag
+data TraceEvent
+  = EventFail String
+  | EventSay [String]
+  | EventTimerCreated VTime
+  | EventTimerExpired
+  | EventThreadForked ThreadId
+  | EventThreadStopped
+  | EventCreatedMVar         MVarTag
+  | EventNonBlockingTookMVar MVarTag
+  | EventFailedTryTakeMVar   MVarTag
+  | EventBlockedOnTakeMVar   MVarTag
+  | EventUnblockedTakeMVar   MVarTag
+  | EventNonBlockingPutMVar  MVarTag
+  | EventFailedTryPutMVar    MVarTag
+  | EventBlockedOnPutMVar    MVarTag
+  | EventUnblockedPutMVar    MVarTag
   deriving Show
 
 filterTrace :: (VTime, ThreadId, TraceEvent) -> Bool
@@ -181,17 +185,21 @@ runSimMST :: forall s. StdGen -> SimM s () -> ST s Trace
 runSimMST prng initialThread = schedule initialState
   where
     initialState :: SimState s
-    initialState = SimState [Thread "main" initialThread]
-                            (VTime 0)
-                            PQueue.empty
-                            prng
+    initialState = SimState
+      { runqueue = [Thread "main" initialThread]
+      , curTime  = (VTime 0)
+      , timers   = PQueue.empty
+      , prng     = prng
+      , threadId = 0
+      , vtagId   = 0
+      }
 
 schedule :: SimState s -> ST s Trace
 
 -- at least one runnable thread, run it one step
 schedule simstate@SimState {
            runqueue = Thread tid action:remaining,
-           curTime  = time, timers
+           curTime  = time, timers, threadId, vtagId
          } =
   case action of
 
@@ -223,17 +231,25 @@ schedule simstate@SimState {
       return ((time,tid,EventTimerCreated expiry):trace)
 
     Free (Fork a k) -> do
-      let thread'  = Thread tid  k
-          tid'     = "TODO"
-          thread'' = Thread tid' a
-      trace <- schedule simstate { runqueue = thread':thread'':remaining }
+      let thread'   = Thread tid k
+          threadId' = threadId + 1
+          tid'      = "th-" ++ show threadId'
+          thread''  = Thread tid' a
+      trace <- schedule simstate
+        { runqueue = thread':thread'':remaining
+        , threadId = threadId'
+        }
       return ((time,tid,EventThreadForked tid'):trace)
 
     Free (NewEmptyMVar k) -> do
       v <- newSTRef (MVarEmpty [])
-      let vtag    = "TODO"
+      let vtagId' = vtagId + 1
+          vtag    = "mvar-" ++ show vtagId'
           thread' = Thread tid (k (SimMVar v vtag))
-      trace <- schedule simstate { runqueue = thread':remaining }
+      trace <- schedule simstate
+        { runqueue = thread':remaining
+        , vtagId   = vtagId'
+        }
       return ((time,tid,EventCreatedMVar vtag):trace)
 
     Free (PutMVar (SimMVar v vtag) x k) -> do
@@ -343,7 +359,7 @@ schedule simstate@SimState {
           return ((time,tid,EventFailedTryTakeMVar vtag):trace)
 
 -- no runnable threads, advance the time to the next timer event, or stop.
-schedule simstate@(SimState [] time timers _) =
+schedule simstate@(SimState [] time timers _ threadId vtagId) =
     -- important to get all events that expire at this time
     case removeMinimums timers of
       Nothing -> return []
@@ -351,7 +367,10 @@ schedule simstate@(SimState [] time timers _) =
       Just (time', events, timers') -> assert (time' > time) $ do
         trace <- schedule simstate { runqueue = map (Thread "timer") events
                                    , curTime  = time'
-                                   , timers   = timers' }
+                                   , timers   = timers'
+                                   , threadId
+                                   , vtagId
+                                   }
         return ((time', "timer", EventTimerExpired):trace)
 
 removeMinimums :: Ord k => PQueue k a -> Maybe (k, [a], PQueue k a)

@@ -107,6 +107,7 @@ data ChainProducerState rep = ChainProducerState {
        chainState   :: rep,
        chainReaders :: ReaderStates
      }
+  deriving Show
 
 -- | Readers are represented here as a relation.
 invChainProducerState :: ChainProducerState Chain -> Bool
@@ -156,11 +157,12 @@ initialiseReader hpoint ipoint (ChainProducerState cs rs) =
         }
 
 freshReaderId :: ReaderStates -> ReaderId
+freshReaderId [] = 0
 freshReaderId rs = 1 + maximum [ readerId | ReaderState{readerId} <- rs ]
 
 updateReader :: ReaderId
-             -> Point
-             -> Maybe Point
+             -> Point       -- ^ new reader head pointer
+             -> Maybe Point -- ^ new reader intersection pointer
              -> ChainProducerState Chain
              -> ChainProducerState Chain
 updateReader rid hpoint mipoint (ChainProducerState cs rs) =
@@ -180,13 +182,30 @@ lookupReader (ChainProducerState _ rs) rid = r
   where
     Just r = find (\r -> readerId r == rid) rs
 
-readerInstruction :: ChainProducerState rep
+-- |
+-- Compute @'ConsumeChain'@ for the reader and optimistically update
+-- @'ReaderState'@ inside @'ChainProducerState'@.
+readerInstruction :: ChainProducerState Chain
                   -> ReaderId
-                  -> Maybe (ChainProducerState rep, ConsumeChain Block)
-readerInstruction cps rid =
-    Nothing
+                  -> Maybe (ChainProducerState Chain, ConsumeChain Block)
+readerInstruction cps@(ChainProducerState cf _) rid =
+  if readerHead == readerIntersection
+  then
+    maybe Nothing
+      (Just . uncurry fn . (\b -> (blockPoint b, RollForward b)))
+      (Chain.findNext readerIntersection cf)
+  else
+    Just $ fn readerIntersection (RollBackward readerIntersection)
   where
-    _r = lookupReader cps rid
+    ReaderState {readerHead, readerIntersection} = lookupReader cps rid
+
+    fn :: Point
+       -> ConsumeChain Block
+       -> (ChainProducerState Chain, ConsumeChain Block)
+    fn p cc =
+        ( updateReader rid p (Just p) cps
+        , cc
+        )
 
 {--
   - applyChainProducerUpdate :: ChainUpdate -> ChainProducerState -> ChainProducerState
@@ -212,6 +231,7 @@ readerInstruction cps rid =
 
 data ConsumeChain block = RollForward  block
                         | RollBackward Point
+  deriving Show
 
 
 --
