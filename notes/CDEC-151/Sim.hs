@@ -12,6 +12,7 @@ module Sim (
   SimProbe,
   SimChan (..),
   SimMVar,
+  failSim,
   flipSimChan,
   newProbe,
   runSimM,
@@ -72,6 +73,9 @@ instance Functor (SimF s) where
     fmap f (TryPutMVar v a k) = TryPutMVar v a (f . k)
 
 type SimM s a = Free (SimF s) a
+
+failSim :: String -> Free (SimF s) ()
+failSim = Free.liftF . Fail
 
 data SimMVar s a = SimMVar (STRef s (MVarContent s a)) MVarTag
 type MVarTag = Tag

@@ -34,7 +34,7 @@ import           Chain (Chain, ChainFragment (..), absChainFragment, applyChainU
 import           Chain.Update (ChainUpdate (..))
 import           ChainExperiment2
 import           MonadClass
-import           Sim (SimChan (..), SimF, SimM, SimMVar (..), Trace, flipSimChan, runSimM)
+import           Sim (SimChan (..), SimF, SimM, SimMVar (..), Trace, failSim, flipSimChan, runSimM)
 
 --
 -- IPC based protocol
@@ -96,6 +96,34 @@ consumerSideProtocol1 ConsumerHandlers{..} done chan = do
       say ("consumer: " ++ show msg)
       rollbackTo p
       return True
+
+exampleConsumer :: forall m. MonadConc m
+                => MVar m (ChainFragment, MVar m ChainFragment)
+                -> ConsumerHandlers m
+exampleConsumer chainvar = ConsumerHandlers {..}
+    where
+    getChainPoints :: m (Point, [Point])
+    getChainPoints = do
+        (chain, _) <- readMVar chainvar
+        -- TODO: bootstraping case (client has no blocks)
+        let (p : ps) = map blockPoint $ absChainFragment chain
+        return (p, ps)
+
+    addBlock :: Block -> m ()
+    addBlock b = void $ modifyMVar_ chainvar $ \(chain, mchain) -> do
+        let !chain' = applyChainUpdate (AddBlock b) chain
+        -- wake up awaiting producer
+        _ <- tryPutMVar mchain chain'
+        mchain' <- newEmptyMVar
+        return (chain', mchain')
+
+    rollbackTo :: Point -> m ()
+    rollbackTo p = void $ modifyMVar_ chainvar $ \(chain, mchain) -> do
+        let !chain' = applyChainUpdate (RollBack p) chain
+        -- wake up awaiting producer
+        _ <- tryPutMVar mchain chain'
+        mchain' <- newEmptyMVar
+        return (chain', mchain')
 
 data ProducerHandlers m r = ProducerHandlers {
        findIntersectionRange :: Point -> [Point] -> m (Maybe (Point, Point)),
@@ -220,36 +248,6 @@ exampleProducer chainvar =
           -- consumer; it may never end. Maybe we should just fail.
           Nothing     -> readChainUpdate rid
 
-exampleConsumer :: forall m. MonadConc m
-                => MVar m (ChainProducerState ChainFragment, MVar m (ChainProducerState ChainFragment))
-                -> ConsumerHandlers m
-exampleConsumer chainvar = ConsumerHandlers {..}
-    where
-    getChainPoints :: m (Point, [Point])
-    getChainPoints = do
-        (ChainProducerState {chainState}, _) <- readMVar chainvar
-        -- TODO: bootstraping case (client has no blocks)
-        let (p : ps) = map blockPoint $ absChainFragment chainState
-        return (p, ps)
-
-    addBlock :: Block -> m ()
-    addBlock b = void $ modifyMVar_ chainvar $ \(cps@ChainProducerState {chainState}, mcps) -> do
-        let !chainState' = applyChainUpdate (AddBlock b) chainState
-        let !cps' = cps { chainState = chainState' }
-        -- wake up awaiting producer
-        _ <- tryPutMVar mcps cps'
-        mcps' <- newEmptyMVar
-        return (cps', mcps')
-
-    rollbackTo :: Point -> m ()
-    rollbackTo p = void $ modifyMVar_ chainvar $ \(cps@ChainProducerState {chainState}, mcps) -> do
-        let !chainState' = applyChainUpdate (RollBack p) chainState
-        let !cps' = cps { chainState = chainState' }
-        -- wake up awaiting producer
-        _ <- tryPutMVar mcps cps'
-        mcps' <- newEmptyMVar
-        return (cps', mcps')
-
 -- |
 -- For a producer that is following n consumers (is subscribed to n-nodes)
 -- we will need `producerSideProtocol1` that is aware of all its subscriptions
@@ -285,16 +283,16 @@ sim1 chain@(ChainFragment ft) = do
     let genesisBlock = case viewl ft of
             EmptyL -> error "sim1: chain is empty"
             b :< _ -> b
-    mcps <- newEmptyMVar
+    mchain <- newEmptyMVar
     chainvar <- newMVar
-      ( ChainProducerState (ChainFragment $ FT.fromList [genesisBlock, Block 5 1 2 ""]) []
-      , mcps
+      ( (ChainFragment $ FT.fromList [genesisBlock, Block 5 1 2 ""])
+      , mchain
       )
     consumerSideProtocol1 (exampleConsumer chainvar) True (flipSimChan chan)
 
-    (ChainProducerState chain' _, _) <- readMVar chainvar
+    (chain', _) <- readMVar chainvar
     when (chain /= chain')
-      (fail $ "chains not equal: " ++ show chain')
+      (failSim $ "chains not equal: " ++ show chain')
     say "Bye!"
 
 trace1 :: Trace
