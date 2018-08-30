@@ -17,6 +17,9 @@ module Sim (
   runSimM,
   runSimMST,
 
+  TraceEvent (..),
+  filterTrace,
+
   example0,
   example1
   ) where
@@ -157,6 +160,13 @@ data TraceEvent = EventFail String
                 | EventBlockedOnPutMVar    MVarTag
                 | EventUnblockedPutMVar    MVarTag
   deriving Show
+
+filterTrace :: (VTime, ThreadId, TraceEvent) -> Bool
+filterTrace (_, _, EventFail _)         = True
+filterTrace (_, _, EventSay _)          = True
+filterTrace (_, _, EventThreadForked _) = True
+filterTrace (_, _, EventThreadStopped)  = True
+filterTrace _                           = False
 
 newProbe :: ST s (SimProbe s a)
 newProbe = SimProbe <$> newSTRef []
