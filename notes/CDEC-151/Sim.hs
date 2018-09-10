@@ -109,10 +109,12 @@ instance MonadTimer (Free (SimF s)) where
   type Time (Free (SimF s)) = VTime
   timer t action = Free.liftF $ Timer t action ()
 
+instance MonadFork (Free (SimF s)) where
+  fork          task = Free.liftF $ Fork task ()
+
 instance MonadConc (Free (SimF s)) where
   type MVar (Free (SimF s)) = SimMVar s
 
-  fork          task = Free.liftF $ Fork task ()
   newEmptyMVar       = Free.liftF $ NewEmptyMVar id
   newMVar          x = do mvar <- newEmptyMVar; putMVar mvar x; return mvar
   tryPutMVar  mvar x = Free.liftF $ TryPutMVar mvar x id
