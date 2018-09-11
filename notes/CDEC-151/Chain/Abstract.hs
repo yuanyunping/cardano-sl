@@ -17,10 +17,11 @@ module Chain.Abstract
     , TestChain (..)
     ) where
 
-import Test.QuickCheck
+import qualified Data.List as L
+import           Test.QuickCheck
 
-import Block (Block (..), BlockId, Slot, blockPoint, hashBlock, genNBlocks)
-import Chain.Update (ChainUpdate (..))
+import           Block (Block (..), BlockId, Slot, blockPoint, genNBlocks, hashBlock)
+import           Chain.Update (ChainUpdate (..))
 
 -- |
 -- Simple blockchain data type.
@@ -79,8 +80,10 @@ genChain :: Int -> Gen Chain
 genChain n = genNBlocks n 0 1
 
 newtype TestChain = TestChain Chain
+    deriving (Show, Eq)
 
 instance Arbitrary TestChain where
     arbitrary = do
         Positive n <- arbitrary
         TestChain <$> genChain n
+    shrink (TestChain c) = TestChain <$> (L.take (length c) $ L.inits c)

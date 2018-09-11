@@ -70,6 +70,7 @@ genBlock blockid slot = do
     return (mkBlock blockid slot payload)
 
 genNBlocks :: Int -> BlockId -> Slot -> Gen [Block]
+genNBlocks 0 _        _     = return []
 genNBlocks 1 blockid0 slot0 = (:[]) <$> genBlock blockid0 slot0
 genNBlocks n blockid0 slot0 = do
     c@(b':_) <- genNBlocks (n-1) blockid0 slot0

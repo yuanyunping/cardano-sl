@@ -1,9 +1,11 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns        #-}
+{-# LANGUAGE TemplateHaskell       #-}
 module Chain
     ( ChainFragment (..)
     , Chain
     , emptyChain
+    , singleton
     , fromList
     , ChainMeasure (..)
     , lookupBySlot
@@ -19,11 +21,14 @@ module Chain
     , length
     , pointOnChain
 
+    , selectChain
+
     , applyChainUpdate
     , applyChainUpdates
     , invReaderStates
 
     , chainHead
+    , chainGenesis
     , chainHeadBlockId
     , chainHeadSlot
     , chainBackwardsFrom
@@ -36,7 +41,10 @@ module Chain
     , validChainFragment
     , chain
 
+    , AddBlockTest (..)
     , TestChain (..)
+    , ChainFork (..)
+    , prop_ChainFork
     , prop_addBlock
     , prop_drop
     , prop_take
@@ -45,6 +53,7 @@ module Chain
     , prop_absChainFragment
     , invChain
     , prop_TestChain
+    , runTests
 
     )
     where
@@ -58,7 +67,8 @@ import qualified Data.List as L
 
 import           Test.QuickCheck hiding ((><))
 
-import           Block (Block (..), BlockId, ChainMeasure (..), Point, Slot, blockPoint)
+import           Block (Block (..), BlockId, ChainMeasure (..), Point, Slot, blockPoint, genBlock,
+                        genNBlocks)
 import qualified Chain.Abstract as Chain.Abs
 import           Chain.Update (ChainUpdate (..))
 
@@ -77,6 +87,9 @@ type Chain = ChainFragment
 
 emptyChain :: Chain
 emptyChain = ChainFragment FT.empty
+
+singleton :: Block -> ChainFragment
+singleton = ChainFragment . FT.singleton
 
 fromList :: [Block] -> ChainFragment
 fromList = ChainFragment . FT.fromList
@@ -107,6 +120,15 @@ findNext p cf = case lookupBySlot cf (fst p) of
             EmptyL -> Nothing
     _ -> Nothing
 
+selectChain
+    :: Chain
+    -> Chain
+    -> Chain
+selectChain c1 c2 =
+    if length c1 >= length c2
+        then c1
+        else c2
+
 splitBeforeSlot :: ChainFragment -> Slot -> (ChainFragment, ChainFragment)
 splitBeforeSlot (ChainFragment t) s =
     (\(l, r) -> (ChainFragment l, ChainFragment r))
@@ -121,29 +143,45 @@ findIntersection c hpoint points =
         | pointOnChain c p' = Just (p', p)
         | otherwise         = go p' ps
 
+data AddBlockTest = AddBlockTest Chain Block
+  deriving Show
+
+instance Arbitrary AddBlockTest where
+  arbitrary = do
+    Positive n <- arbitrary
+    chain <- genChain n
+    let Just h = chainHead chain
+    block <- genBlock (blockId h) (blockSlot h)
+    return $ AddBlockTest chain block
+
 addBlock :: Chain -> Block -> Chain
 addBlock (ChainFragment ft) b = ChainFragment (ft |> b)
 
-prop_addBlock :: Block -> Chain.Abs.Chain -> Bool
-prop_addBlock b c =
-    b : c == absChainFragment (reifyChainFragment c `addBlock` b)
+prop_addBlock :: AddBlockTest -> Bool
+prop_addBlock (AddBlockTest c b) =
+    b : absChainFragment c == absChainFragment (c `addBlock` b)
 
 drop :: Int -> Chain -> Chain
-drop n (ChainFragment ft) = ChainFragment $ FT.dropUntil (\v -> size v > n) ft
+drop n (ChainFragment t)
+  | n <= 0    = ChainFragment t
+  | otherwise = case FT.viewr t of
+      EmptyR  -> ChainFragment t
+      t' :> _ -> drop (n - 1) (ChainFragment t')
 
-prop_drop :: Int -> Chain.Abs.Chain -> Bool
-prop_drop n c =
+prop_drop :: Int -> Chain.Abs.TestChain -> Bool
+prop_drop n (Chain.Abs.TestChain c) =
     L.drop n c == absChainFragment (drop n $ reifyChainFragment c)
 
+-- Take from the right side (oldest)
 take :: Int -> Chain -> Chain
 take n (ChainFragment ft) = ChainFragment $ FT.takeUntil (\v -> size v > n) ft
 
-prop_take :: Int -> Chain.Abs.Chain -> Bool
-prop_take n c =
-    L.take n c == absChainFragment (take n $ reifyChainFragment c)
+prop_take :: Int -> TestChain -> Bool
+prop_take n (TestChain c) =
+    (L.reverse $ L.take n $ L.reverse $ (absChainFragment c)) == absChainFragment (take n $ c)
 
-append :: [Block] -> Chain -> Chain
-append bs (ChainFragment r) = ChainFragment (L.foldl' (|>) r bs)
+append :: Chain -> [Block] -> Chain
+append (ChainFragment r) bs = ChainFragment (L.foldl' (|>) r bs)
 
 length :: ChainFragment -> Int
 length (ChainFragment ft) = size (measure ft)
@@ -157,14 +195,38 @@ pointOnChain (ChainFragment ft) p = go ft
         t' :> b | blockPoint b == p -> True
                 | otherwise         -> go t'
 
-prop_append :: [Block] -> Chain.Abs.Chain -> Bool
-prop_append l r =
-    l ++ r == absChainFragment (l `append` reifyChainFragment r)
+data AppendTest = AppendTest Chain [Block]
+  deriving Show
 
-chainHead :: Chain -> Maybe Block
-chainHead (ChainFragment ft) = case FT.viewl ft of
+instance Arbitrary AppendTest where
+  arbitrary = do
+    Positive n <- arbitrary
+    chain <- genChain n
+
+    let Just h = chainHead chain
+    NonNegative k <- arbitrary
+    blocks <- genNBlocks k (blockId h) (blockSlot h + 1)
+
+    return $ AppendTest chain blocks
+
+  -- TODO: shrink is to large
+  shrink (AppendTest chain blocks) =
+    let len = L.length blocks
+    in AppendTest chain `map` (L.take (len - 1) $ L.inits blocks)
+
+prop_append :: AppendTest -> Bool
+prop_append (AppendTest chain bs) =
+    bs ++ absChainFragment chain == absChainFragment (chain `append` reverse bs)
+
+chainGenesis :: Chain -> Maybe Block
+chainGenesis (ChainFragment ft) = case FT.viewl ft of
     EmptyL -> Nothing
     b :< _ -> Just b
+
+chainHead :: Chain -> Maybe Block
+chainHead (ChainFragment ft) = case FT.viewr ft of
+    EmptyR -> Nothing
+    _ :> b -> Just b
 
 chainHeadBlockId :: Chain -> BlockId
 chainHeadBlockId = maybe 0 blockId . chainHead
@@ -201,8 +263,8 @@ chainBackwardsFrom c bid = go c
 reifyChainFragment :: Chain.Abs.ChainFragment -> ChainFragment
 reifyChainFragment = fromList . reverse
 
-prop_reifyChainFragment :: Chain.Abs.ChainFragment -> Bool
-prop_reifyChainFragment bs =
+prop_reifyChainFragment :: Chain.Abs.TestChain -> Bool
+prop_reifyChainFragment (Chain.Abs.TestChain bs) =
     absChainFragment (reifyChainFragment bs) == bs
 
 -- |
@@ -211,8 +273,8 @@ prop_reifyChainFragment bs =
 absChainFragment :: ChainFragment -> Chain.Abs.ChainFragment
 absChainFragment (ChainFragment ft) = L.foldl' (flip (:)) [] ft
 
-prop_absChainFragment :: ChainFragment -> Bool
-prop_absChainFragment cf =
+prop_absChainFragment :: TestChain -> Bool
+prop_absChainFragment (TestChain cf) =
     reifyChainFragment (absChainFragment cf) == cf
 
 validChain :: Chain -> Bool
@@ -229,8 +291,63 @@ newtype TestChain = TestChain Chain
 
 instance Arbitrary TestChain where
     arbitrary = do
+      Positive n <- arbitrary
+      TestChain <$> genChain n
+    shrink (TestChain cf) =
+      [ TestChain (reifyChainFragment cf')
+      | cf' <- L.take (length cf) $ L.inits $ absChainFragment cf
+      ]
+
+-- |
+-- Not null chains, which have a common prefix.
+data ChainFork = ChainFork Chain Chain
+    deriving Show
+
+instance Arbitrary ChainFork where
+    arbitrary = do
         Positive n <- arbitrary
-        TestChain <$> genChain n
+        chain <- genChain n
+        let Just h = chainHead chain
+
+        -- 5% of forks should be equal
+        equalChains <- frequency [(1, return True), (19, return False)]
+        if equalChains
+          then return $ ChainFork chain chain
+          else do
+            Positive k <- arbitrary
+            bs1 <- genNBlocks k (blockId h) (blockSlot h + 1)
+            let chain1 = foldr (flip addBlock) chain bs1
+
+            Positive l <- arbitrary
+            bs2 <- genNBlocks l (blockId h) (blockSlot h + 1)
+            let chain2 = foldr (flip addBlock) chain bs2
+
+            return $ ChainFork chain1 chain2
+
+    shrink (ChainFork c d) =
+      [ ChainFork (fromList $ L.reverse c') d
+      | c' <- L.take (length c - 1) $ L.inits $ L.reverse $ absChainFragment c
+      , not (null c')
+      ] ++
+      [ ChainFork c (fromList $ L.reverse d')
+      | d' <- L.take (length d - 1) $ L.inits $ L.reverse $ absChainFragment d
+      , not (null d')
+      ]
+
+-- Test Chain fork distribution
+-- 5% forks equal
+-- 5% forks of equal length
+prop_ChainFork :: ChainFork -> Property
+prop_ChainFork (ChainFork pchain cchain) =
+  let plen = Chain.length pchain
+      clen = Chain.length cchain
+  in withMaxSuccess 1000
+    $ cover (pchain == cchain) 4 "chains are equal"
+    $ cover (plen > clen) 39 "producer chain is longer"
+    $ cover (plen == clen) 4 "chains of equal length"
+    $ cover (clen < plen) 39 "consumer chain is longer"
+    $    counterexample (show pchain) (validChain pchain)
+    .&&. counterexample (show cchain) (validChain cchain)
 
 prop_TestChain :: TestChain -> Bool
 prop_TestChain (TestChain chain) = validChain chain
@@ -239,3 +356,6 @@ prop_TestChain (TestChain chain) = validChain chain
 -- TODO: like 'Chain.Volatile.invChainState'
 invChain :: Chain -> Bool
 invChain = undefined
+
+return []
+runTests = $quickCheckAll
