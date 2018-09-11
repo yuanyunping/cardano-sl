@@ -1,5 +1,7 @@
-{-# LANGUAGE MultiParamTypeClasses, TypeFamilies, FunctionalDependencies,
-             FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE TypeFamilies           #-}
 module MonadClass (
   MonadSay(..),
   MonadProbe(..),
@@ -9,6 +11,8 @@ module MonadClass (
   MonadConc(..),
   MonadSendRecv(..),
   MonadSTM(..),
+  newEmptyMVar,
+  newMVar
   ) where
 
 import qualified Control.Concurrent as IO
@@ -37,13 +41,13 @@ class (Ord t, Ord (Duration t), Num (Duration t)) => TimeMeasure t where
   addTime  :: Duration t -> t -> t
 
 class Monad m => MonadFork m where
-  fork         :: m () -> m ()
+  fork    :: m () -> m ()
 
 class MonadFork m => MonadConc m where
   type MVar m :: * -> *
 
-  newEmptyMVar :: m (MVar m a)
-  newMVar      :: a -> m (MVar m a)
+  newEmptyNamedMVar :: Maybe String -> m (MVar m a)
+  newNamedMVar :: Maybe String -> a -> m (MVar m a)
   takeMVar     :: MVar m a -> m a
   tryTakeMVar  :: MVar m a -> m (Maybe a)
   putMVar      :: MVar m a -> a -> m ()
@@ -64,6 +68,12 @@ class MonadFork m => MonadConc m where
     x  <- takeMVar v
     x' <- a x
     putMVar v x'
+
+newEmptyMVar :: MonadConc m => m (MVar m a)
+newEmptyMVar = newEmptyNamedMVar Nothing
+
+newMVar :: MonadConc m => a -> m (MVar m a)
+newMVar = newNamedMVar Nothing
 
 class Monad m => MonadSendRecv m where
   type BiChan m :: * -> * -> *

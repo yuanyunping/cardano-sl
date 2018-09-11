@@ -14,18 +14,26 @@ module Sim (
   SimMVar,
   failSim,
   flipSimChan,
+
+  ProbeTrace,
   newProbe,
+  readProbe,
+
   runSimM,
   runSimMST,
 
   Trace,
   TraceEvent (..),
   filterTrace,
+  filterByThread,
 
   example0,
-  example1
+  example1,
+  example2
   ) where
 
+import           Data.Functor ((<$))
+import           Data.Maybe (fromMaybe)
 import           Data.PriorityQueue.FingerTree (PQueue)
 import qualified Data.PriorityQueue.FingerTree as PQueue
 
@@ -54,7 +62,7 @@ data SimF (s :: *) a where
   Timer        :: VTimeDuration -> Free (SimF s) () -> b -> SimF s b
 
   Fork         :: Free (SimF s) () -> b -> SimF s b
-  NewEmptyMVar :: (SimMVar s a -> b) -> SimF s b
+  NewEmptyMVar :: Maybe MVarTag  -> (SimMVar s a -> b) -> SimF s b
   TakeMVar     :: SimMVar s a -> (a -> b) -> SimF s b
   PutMVar      :: SimMVar s a ->  a -> b  -> SimF s b
   TryTakeMVar  :: SimMVar s a -> (Maybe a -> b) -> SimF s b
@@ -66,7 +74,7 @@ instance Functor (SimF s) where
     fmap f (Probe p o b)      = Probe p o $ f b
     fmap f (Timer d s b)      = Timer d s $ f b
     fmap f (Fork s b)         = Fork s $ f b
-    fmap f (NewEmptyMVar k)   = NewEmptyMVar (f . k)
+    fmap f (NewEmptyMVar t k) = NewEmptyMVar t (f . k)
     fmap f (TakeMVar v k)     = TakeMVar v (f . k)
     fmap f (PutMVar v a b)    = PutMVar v a $ f b
     fmap f (TryTakeMVar v k)  = TryTakeMVar v (f . k)
@@ -114,13 +122,13 @@ instance MonadTimer (Free (SimF s)) where
   timer t action = Free.liftF $ Timer t action ()
 
 instance MonadFork (Free (SimF s)) where
-  fork          task = Free.liftF $ Fork task ()
+  fork task = Free.liftF $ Fork task ()
 
 instance MonadConc (Free (SimF s)) where
   type MVar (Free (SimF s)) = SimMVar s
 
-  newEmptyMVar       = Free.liftF $ NewEmptyMVar id
-  newMVar          x = do mvar <- newEmptyMVar; putMVar mvar x; return mvar
+  newEmptyNamedMVar t = Free.liftF $ NewEmptyMVar t id
+  newNamedMVar      t   x = do mvar <- (newEmptyNamedMVar t); putMVar mvar x; return mvar
   tryPutMVar  mvar x = Free.liftF $ TryPutMVar mvar x id
   tryTakeMVar mvar   = Free.liftF $ TryTakeMVar mvar id
   takeMVar    mvar   = Free.liftF $ TakeMVar mvar id
@@ -177,6 +185,9 @@ filterTrace (_, _, EventSay _)          = True
 filterTrace (_, _, EventThreadForked _) = True
 filterTrace (_, _, EventThreadStopped)  = True
 filterTrace _                           = False
+
+filterByThread :: ThreadId -> (VTime, ThreadId, TraceEvent) -> Bool
+filterByThread tid (_, tid', _) = tid == tid'
 
 newProbe :: ST s (SimProbe s a)
 newProbe = SimProbe <$> newSTRef []
@@ -247,10 +258,10 @@ schedule simstate@SimState {
         }
       return ((time,tid,EventThreadForked tid'):trace)
 
-    Free (NewEmptyMVar k) -> do
+    Free (NewEmptyMVar t k) -> do
       v <- newSTRef (MVarEmpty [])
       let vtagId' = vtagId + 1
-          vtag    = "mvar-" ++ show vtagId'
+          vtag    = fromMaybe ("mvar-" ++ show vtagId') t
           thread' = Thread tid (k (SimMVar v vtag))
       trace <- schedule simstate
         { runqueue = thread':remaining
@@ -427,4 +438,14 @@ example1 xs = do
     consumer v p = forever $ do
       x <- takeMVar v
       probeOutput p x
+
+-- probe output is reversed!
+example2 :: forall a s. ST s (Trace, ProbeTrace Int)
+example2 = do
+  p <- newProbe
+  trace <- runSimMST (mkStdGen 0) $ do
+    probeOutput p 1
+    probeOutput p 2
+  ptrace <- readProbe p
+  return (trace, ptrace)
 
