@@ -16,15 +16,18 @@ module MonadClass (
   ) where
 
 import qualified Control.Concurrent as IO
-import qualified Control.Monad.STM as STM
 import qualified Control.Concurrent.STM.TVar as STM
+import           Control.Monad (void)
+import qualified Control.Monad.STM as STM
 
-import qualified GHC.Event as GHC
-         ( TimeoutKey, TimeoutCallback, getSystemTimerManager
-         , registerTimeout, updateTimeout, unregisterTimeout )
+import qualified GHC.Event as GHC (TimeoutCallback, TimeoutKey, getSystemTimerManager,
+                                   registerTimeout, unregisterTimeout, updateTimeout)
 
 class Monad m => MonadSay m where
   say :: String -> m ()
+
+instance MonadSay IO where
+  say = print
 
 class Monad m => MonadProbe m where
   type Probe m :: * -> *
@@ -89,12 +92,12 @@ class (MonadFork m, Monad stm) => MonadSTM m stm | m -> stm, stm -> m where
   newTVar      :: a -> stm (TVar m a)
   readTVar     :: TVar m a -> stm a
   writeTVar    :: TVar m a -> a -> stm ()
-  retry        :: stm ()
+  retry        :: stm a
 --orElse       :: stm a -> stm a -> stm a --TODO
 
   check        :: Bool -> stm ()
-  check True   = return ()
-  check False  = retry
+  check True  = return ()
+  check False = retry
 
 
 data TimeoutState = TimeoutPending | TimeoutFired | TimeoutCancelled
@@ -109,7 +112,7 @@ class MonadSTM m stm => MonadSTMTimer m stm where
   cancelTimeout  :: Timeout m -> m ()
 
 instance MonadFork IO where
-  fork a = IO.forkIO a >> return ()
+  fork a = void $ IO.forkIO a
 
 instance MonadSTM IO STM.STM where
   type TVar IO = STM.TVar
@@ -123,7 +126,7 @@ instance MonadSTM IO STM.STM where
 instance MonadTimer IO where
   type Time IO = Int -- microseconds
 
-  timer t a = IO.forkIO (IO.threadDelay t >> a) >> return ()
+  timer t a = void $ IO.forkIO (IO.threadDelay t >> a)
 
 instance TimeMeasure Int where
   type Duration Int = Int -- microseconds
