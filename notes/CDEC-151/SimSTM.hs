@@ -1,17 +1,18 @@
+{-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTSyntax                 #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE BangPatterns               #-}
 module SimSTM {-(
   SimF,
   SimM,
-  SimProbe,
+  Probe,
   SimChan (..),
   newProbe,
   runSimM,
@@ -21,8 +22,10 @@ module SimSTM {-(
 import           Data.PriorityQueue.FingerTree (PQueue)
 import qualified Data.PriorityQueue.FingerTree as PQueue
 
+import qualified Data.List as L
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Maybe (catMaybes)
 import           Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -34,7 +37,7 @@ import           Control.Monad.Free as Free
 import           Control.Monad.ST.Lazy
 import           Data.STRef.Lazy
 
-import           MonadClass hiding (MVar, TVar, STM, Probe)
+import           MonadClass hiding (MVar, Probe, STM, TVar)
 import qualified MonadClass
 
 
@@ -66,6 +69,9 @@ type STM  s   = Free (StmF s)
 newtype Probe s a = Probe (STRef s (ProbeTrace a))
 type ProbeTrace a = [(VTime, a)]
 
+failSim :: String -> Free (SimF s) ()
+failSim = Free.liftF . Fail
+
 newtype VTime         = VTime Rational
   deriving (Eq, Ord, Show)
 newtype VTimeDuration = VTimeDuration Rational
@@ -78,18 +84,18 @@ instance TimeMeasure VTime where
   addTime  (VTimeDuration d) (VTime t) = VTime (t+d)
 
 instance Functor (SimF s) where
-  fmap _ (Fail f)           = Fail f
-  fmap f (Say ss b)         = Say ss $ f b
-  fmap f (Output p o b)     = Output p o $ f b
-  fmap f (Timer d s b)      = Timer d s $ f b
-  fmap f (Fork s b)         = Fork s $ f b
-  fmap f (Atomically a k)   = Atomically a (f . k)
+  fmap _ (Fail f)         = Fail f
+  fmap f (Say ss b)       = Say ss $ f b
+  fmap f (Output p o b)   = Output p o $ f b
+  fmap f (Timer d s b)    = Timer d s $ f b
+  fmap f (Fork s b)       = Fork s $ f b
+  fmap f (Atomically a k) = Atomically a (f . k)
 
 instance Functor (StmF s) where
-  fmap f (NewTVar   x k)    = NewTVar   x (f . k)
-  fmap f (ReadTVar  v k)    = ReadTVar  v (f . k)
-  fmap f (WriteTVar v a b)  = WriteTVar v a (f b)
-  fmap f  Retry             = Retry
+  fmap f (NewTVar   x k)   = NewTVar   x (f . k)
+  fmap f (ReadTVar  v k)   = ReadTVar  v (f . k)
+  fmap f (WriteTVar v a b) = WriteTVar v a (f b)
+  fmap f  Retry            = Retry
 
 instance MonadSay (Free (SimF s)) where
   say msg = Free.liftF $ Say [msg] ()
@@ -113,7 +119,26 @@ instance MonadSTM (Free (SimF s)) (Free (StmF s)) where
   writeTVar  tvar x = Free.liftF $ WriteTVar tvar x ()
   retry             = Free.liftF $ Retry
 
+instance MonadSendRecv (Free (SimF s)) where
+  type BiChan (Free (SimF s)) = SimChan s
+
+  newChan = SimChan <$> atomically (newTVar Nothing) <*> atomically (newTVar Nothing)
+  sendMsg (SimChan  s _r) = atomically . writeTVar s . Just
+  recvMsg (SimChan _s  r) = atomically $ do
+      mmsg <- readTVar r
+      case mmsg of
+        Nothing  -> retry
+        Just msg -> writeTVar r Nothing >> return msg
+
+data SimChan s send recv = SimChan (TVar s (Maybe send)) (TVar s (Maybe recv))
+
+flipSimChan :: SimChan s recv send -> SimChan s send recv
+flipSimChan (SimChan unichanAB unichanBA) = SimChan unichanBA unichanAB
+
 data Thread s = Thread ThreadId (SimM s ())
+
+threadId :: Thread s -> ThreadId
+threadId (Thread tid _) = tid
 
 newtype ThreadId = ThreadId Int deriving (Eq, Ord, Show)
 newtype TVarId   = TVarId   Int deriving (Eq, Ord, Show)
@@ -137,6 +162,16 @@ data TraceEvent
   | EventTxBlocked     [TVarId] -- tx blocked reading these
   | EventTxRetry       [TVarId] -- changed vars causing retry
   deriving Show
+
+filterTrace :: (VTime, ThreadId, TraceEvent) -> Bool
+filterTrace (_, _, EventFail _)         = True
+filterTrace (_, _, EventSay _)          = True
+filterTrace (_, _, EventThreadForked _) = True
+filterTrace (_, _, EventThreadStopped)  = True
+filterTrace _                           = False
+
+filterByThread :: ThreadId -> (VTime, ThreadId, TraceEvent) -> Bool
+filterByThread tid (_, tid', _) = tid == tid'
 
 newProbe :: ST s (Probe s a)
 newProbe = Probe <$> newSTRef []
@@ -210,7 +245,7 @@ schedule simstate@SimState {
           thread'' = Thread tid' a
           tid'     = nextTid
       trace <- schedule simstate
-        { runqueue = thread':thread'':remaining
+        { runqueue = thread':remaining ++ [thread'']
         , nextTid  = succThreadId nextTid
         }
       return ((time,tid,EventThreadForked tid'):trace)
@@ -220,9 +255,10 @@ schedule simstate@SimState {
       case res of
         StmTxComitted x written wakeup -> do
           let thread'   = Thread tid (k x)
-              unblocked = [ blocked Map.! tid' | (tid', _) <- wakeup ]
+              unblocked = catMaybes [ blocked Map.!? tid' | (tid', _) <- wakeup ]
+              runqueue =  remaining ++ (reverse $ thread' : unblocked)
           trace <- schedule simstate {
-                     runqueue = thread' : unblocked ++ remaining,
+                     runqueue,
                      blocked  = blocked `Map.difference`
                                 Map.fromList [ (tid', ()) | (tid', _) <- wakeup ],
                      nextVid  = nextVid'
@@ -314,7 +350,7 @@ execAtomically mytid = go [] []
       tidss <- sequence [ (,) vid <$> commitTVar tvar
                         | SomeTVar tvar@(TVar vid _ _ _) <- written ]
       let -- for each thread, what var writes woke it up
-          wokeVars    = Map.fromListWith (++)
+          wokeVars    = Map.fromListWith (\l r -> L.nub $ l ++ r)
                           [ (tid, [vid]) | (vid, tids) <- tidss, tid <- tids ]
           -- threads to wake up, in wake up order, with assoicated vars
           wokeThreads = [ (tid, wokeVars Map.! tid)
@@ -401,3 +437,40 @@ example0 = do
     unless (x == 1) retry
   say "main done"
 
+example1 :: Free (SimF s) ()
+example1 = do
+  say "starting"
+  chan <- atomically (newTVar [])
+  fork $ forever $ do
+    atomically $ do
+      x <- readTVar chan
+      writeTVar chan (1:x)
+  fork $ forever $ do
+    atomically $ do
+      x <- readTVar chan
+      writeTVar chan (2:x)
+
+  timer 1 $ do
+    x <- atomically $ readTVar chan
+    say $ show x
+
+-- the trace should contain "1" followed by "2"
+example2 :: (MonadSay m, MonadSTM m stm) => m ()
+example2 = do
+  say "starting"
+  v <- atomically $ newTVar Nothing
+  fork $ do
+    atomically $ do
+      x <- readTVar v
+      case x of
+        Nothing -> retry
+        Just _  -> return ()
+    say "1"
+  fork $ do
+    atomically $ do
+      x <- readTVar v
+      case x of
+        Nothing -> retry
+        Just _  -> return ()
+    say "2"
+  atomically $ writeTVar v (Just ())
