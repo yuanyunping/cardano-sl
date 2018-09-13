@@ -13,6 +13,7 @@
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
+
 module ConsumerProtocol where
 
 import           Prelude
@@ -35,16 +36,18 @@ import           System.Random (mkStdGen)
 
 import           Test.QuickCheck
 
-import           Block (Block (..), Point, ReaderId, blockPoint)
+import           Block (Block (..), Point, ReaderId, ReaderState (..), blockPoint)
 import           Chain (Chain, ChainFragment (..), absChainFragment, applyChainUpdate, chain,
                         chainGenesis, findIntersection)
-import qualified Chain as Chain
+import qualified Chain
 import           Chain.Update (ChainUpdate (..))
 import           ChainExperiment2
 import           MonadClass
-import           Sim (ProbeTrace, SimChan (..), SimF, SimM, SimMVar (..), SimProbe, Trace, failSim,
-                      flipSimChan, newProbe, readProbe, runSimM, runSimMST)
-import qualified Sim as Sim
+import           SimSTM (ProbeTrace, SimChan (..), SimF, SimM, Trace, failSim, flipSimChan,
+                         newProbe, readProbe, runSimM, runSimMST)
+import qualified SimSTM
+
+{-# ANN module "HLint: ignore Use readTVarIO" #-}
 
 --
 -- IPC based protocol
@@ -74,10 +77,9 @@ consumerSideProtocol1 :: forall m.
                          (MonadSendRecv m, MonadSay m)
                       => ConsumerHandlers m
                       -> Int  -- ^ consumer id
-                      -> Bool -- ^ finish on `MsgAwaitReply`
                       -> BiChan m MsgConsumer MsgProducer
                       -> m ()
-consumerSideProtocol1 ConsumerHandlers{..} n done chan = do
+consumerSideProtocol1 ConsumerHandlers{..} n chan = do
     -- The consumer opens by sending a list of points on their chain.
     -- This includes the head block and
     (hpoint, points) <- getChainPoints
@@ -92,58 +94,49 @@ consumerSideProtocol1 ConsumerHandlers{..} n done chan = do
     requestNext = do
       sendMsg chan MsgRequestNext
       reply <- recvMsg chan
-      k <- handleChainUpdate reply
-      when k
-        requestNext
+      handleChainUpdate reply
+      requestNext
 
-    handleChainUpdate :: MsgProducer -> m Bool
+    handleChainUpdate :: MsgProducer -> m ()
     handleChainUpdate msg@MsgAwaitReply = do
       say (consumerId ++ ":handleChainUpdate: " ++ show msg)
-      return (not done)
 
     handleChainUpdate msg@(MsgRollForward  b) = do
       say (consumerId ++ ":handleChainUpdate: " ++ show msg)
       addBlock b
-      return True
 
     handleChainUpdate msg@(MsgRollBackward p) = do
       say (consumerId ++ ":handleChainUpdate: " ++ show msg)
       rollbackTo p
-      return True
 
     handleChainUpdate msg = do
         say (consumerId ++ ":handleChainUpdate: " ++ show msg)
-        return True
 
-exampleConsumer :: forall m. (MonadSay m, MonadConc m)
-                => MVar m (ChainFragment, MVar m ChainFragment)
+exampleConsumer :: forall m stm. (MonadSay m, MonadSTM m stm)
+                => TVar m ChainFragment
                 -> ConsumerHandlers m
 exampleConsumer chainvar = ConsumerHandlers {..}
     where
     getChainPoints :: m (Point, [Point])
-    getChainPoints = do
-        (chain, _) <- readMVar chainvar
+    getChainPoints = atomically $ do
+        chain <- readTVar chainvar
         -- TODO: bootstraping case (client has no blocks)
         let (p : ps) = map blockPoint $ absChainFragment chain
         return (p, ps)
 
     addBlock :: Block -> m ()
-    addBlock b = void $ modifyMVar_ chainvar $ \(chain, mchain) -> do
-        say $ "addBlock: " ++ show b
+    addBlock b = void $ atomically $ do
+        chain <- readTVar chainvar
         let !chain' = applyChainUpdate (AddBlock b) chain
-        -- wake up awaiting producer
-        _ <- tryPutMVar mchain chain'
-        mchain' <- newEmptyNamedMVar (Just $ "c-chainvar-" ++ show (Chain.length chain'))
-        return (chain', mchain')
+        when (chain /= chain')
+          $ writeTVar chainvar chain'
 
     rollbackTo :: Point -> m ()
-    rollbackTo p = void $ modifyMVar_ chainvar $ \(chain, mchain) -> do
-        say $ "rollbackTo: " ++ show p
+    rollbackTo p = atomically $ do
+        chain <- readTVar chainvar
         let !chain' = applyChainUpdate (RollBack p) chain
-        -- wake up awaiting producer
-        _ <- tryPutMVar mchain chain'
-        mchain' <- newEmptyNamedMVar (Just $ "c-chainvar-" ++ show (Chain.length chain'))
-        return (chain', mchain')
+        when (chain /= chain')
+          $ writeTVar chainvar chain'
 
 data ProducerHandlers m r = ProducerHandlers {
        findIntersectionRange :: Point -> [Point] -> m (Maybe (Point, Point)),
@@ -227,90 +220,95 @@ producerSideProtocol1 ProducerHandlers{..} n chan =
     updateMsg (RollForward  b) = MsgRollForward b
     updateMsg (RollBackward p) = MsgRollBackward p
 
-
-exampleProducer :: forall m. (MonadConc m, MonadSay m)
-                => MVar m (ChainProducerState ChainFragment, MVar m (ChainProducerState ChainFragment))
-                -> ProducerHandlers m ReaderId
+exampleProducer
+  :: forall m stm. (MonadSay m, MonadSTM m stm)
+  => TVar m (ChainProducerState ChainFragment)
+  -> ProducerHandlers m ReaderId
 exampleProducer chainvar =
     ProducerHandlers {..}
   where
     findIntersectionRange :: Point -> [Point] -> m (Maybe (Point, Point))
     findIntersectionRange hpoint points = do
-      (ChainProducerState {chainState}, _) <- readMVar chainvar
+      ChainProducerState {chainState} <- atomically $ readTVar chainvar
       return $! findIntersection chainState hpoint points
 
     establishReaderState :: Point -> Point -> m ReaderId
-    establishReaderState hpoint ipoint =
-      modifyMVar chainvar $ \(cps, mcps) ->
-          case initialiseReader hpoint ipoint cps of
-            (cps', rid) -> return ((cps', mcps), rid)
+    establishReaderState hpoint ipoint = atomically $ do
+      cps <- readTVar chainvar
+      let (cps', rid) = initialiseReader hpoint ipoint cps
+      when (cps /= cps')
+        $ writeTVar chainvar cps'
+      return rid
 
     updateReaderState :: ReaderId -> Point -> Maybe Point -> m ()
-    updateReaderState rid hpoint mipoint =
-      modifyMVar_ chainvar $ \(cps, mcps) ->
+    updateReaderState rid hpoint mipoint = do
+      cps <- atomically $ do
+        cps <- readTVar chainvar
         let !ncps = updateReader rid hpoint mipoint cps
-        in return (ncps, mcps)
+        when (cps /= ncps)
+          $ writeTVar chainvar ncps
+        return ncps
+      say $ "updateReaderState: " ++ show cps
 
     tryReadChainUpdate :: ReaderId -> m (Maybe (ConsumeChain Block))
-    tryReadChainUpdate rid =
-      modifyMVar chainvar $ \cps -> do
-        let res = readerInstruction (fst cps) rid
-        say ("tryReadChainUpdate: ChainProducerState  " ++ show (fst cps))
-        say ("tryReadChainUpdate: ChainProducerState' " ++ show (fmap fst res))
-        say ("tryReadChainUpdate: instruction         " ++ show (fmap snd res))
-        return $ swizzle cps res
-      where
-        swizzle cps       Nothing          = (cps, Nothing)
-        swizzle (_, mcps) (Just (cps', x)) = ((cps', mcps), Just x)
+    tryReadChainUpdate rid = do
+      (x, cc) <- atomically $ do
+        cps <- readTVar chainvar
+        case readerInstruction cps rid of
+          Nothing        -> return ((cps, cps), Nothing)
+          Just (cps', x) -> do
+            when (cps /= cps')
+              $ writeTVar chainvar cps'
+            return ((cps, cps'), Just x)
+      say $ "tryReadStateUpdate: " ++ show x ++ " " ++ show cc
+      return cc
 
     readChainUpdate :: ReaderId -> m (ConsumeChain Block)
     readChainUpdate rid = do
-      -- block on the inner mvar
-      say ("readChainUpdate: blocking on updated for " ++ show rid)
-      cps <- readMVar chainvar >>= readMVar . snd
-      say ("readChainUpdate: unblocked on update for " ++ show rid)
-      say ("readChainUpdate: ChainProducerState " ++ show cps)
-      case readerInstruction cps rid of
-          Just (_, x) -> do
-            return x
-          -- NOTE: this will block until we know how to update the
-          -- consumer; it may never end. Maybe we should just fail.
-          Nothing     -> readChainUpdate rid
-
+      (cps, x) <- atomically $ do
+        cps <- readTVar chainvar
+        case readerInstruction cps rid of
+          Nothing        -> retry
+          Just (cps', x) -> do
+            when (cps /= cps')
+              $ writeTVar chainvar cps'
+            return (cps', x)
+      say $ "readChainUpdate: " ++ show cps ++ " " ++ show x
+      return x
 
 -- |
 -- Simulate transfering a chain from a producer to a consumer
 producerToConsumerSim
-    :: SimProbe s Chain
+    :: SimSTM.Probe s Chain
     -> Chain
     -- ^ chain to reproduce on the consumer; ought to be non empty
     -> Chain
     -- ^ initial chain of the consumer; ought to be non empty
     -> Free (SimF s) ()
-producerToConsumerSim v chain cchain = do
+producerToConsumerSim v pchain cchain = do
     chan <- newChan
 
     -- run producer in a new thread
     fork $ do
-        mcps     <- newEmptyMVar
-        chainvar <- newMVar (ChainProducerState chain [], mcps)
+        chainvar <- atomically $ newTVar (ChainProducerState pchain [])
         producerSideProtocol1 (exampleProducer chainvar) 1 chan
 
-    mchain <- newEmptyMVar
-    chainvar <- newMVar (cchain, mchain)
+    chainvar <- atomically $ newTVar cchain
+    fork $
+        consumerSideProtocol1 (exampleConsumer chainvar) 1 (flipSimChan chan)
 
-    fork $ do
-        consumerSideProtocol1 (exampleConsumer chainvar) 1 False (flipSimChan chan)
-
-    fork $ forever $ do
-      (chain, mchain) <- readMVar chainvar
+    say "done"
+    timer 1 $ do
+      chain <- atomically $ readTVar chainvar
       void $ probeOutput v chain
-      void $ readMVar mchain
 
-runProducerToConsumer :: Chain -> Chain -> (Trace, ProbeTrace Chain)
+runProducerToConsumer
+  :: Chain -- ^ producer chain
+  -> Chain -- ^ consumer chain
+  -> (Trace, ProbeTrace Chain)
 runProducerToConsumer pchain cchain = runST $ do
   v <- newProbe
-  trace <- runSimMST (mkStdGen 0) (producerToConsumerSim v pchain cchain)
+  trace <- runSimMST (producerToConsumerSim v pchain cchain)
   probe <- readProbe v
   return (trace, probe)
 
@@ -319,67 +317,94 @@ prop_producerToConsumer (Chain.ChainFork pchain cchain) =
   let (tr, pr) = runProducerToConsumer pchain cchain
       rchain = snd $ last pr -- ^ chain transferred to the consumer
   in counterexample
-      ("producer chain: " ++ show pchain ++
-       "\nconsumer chain: " ++ show cchain ++
-       "\nresult chain: " ++ show rchain ++
-       "\ntrace:\n" ++ unlines (map show $ filter Sim.filterTrace tr)
-       )
+      ("producer chain: "     ++ show pchain
+      ++ "\nconsumer chain: " ++ show cchain
+      ++ "\nresult chain: "   ++ show rchain
+      ++ "\ntrace:\n"
+      ++ unlines (map show $ filter SimSTM.filterTrace tr))
     $ rchain == pchain
 
 -- |
--- For a producer that is following n consumers (is subscribed to n-nodes)
--- we will need `producerSideProtocol1` that is aware of all its subscriptions
--- and has access to all channels.
-bindConsumersToProducerN
-    :: ChainFragment
+-- Select chain from n consumers.
+selectChainM
+    :: forall m stm. (MonadFork m, MonadSTM m stm)
+    => ChainFragment
     -- ^ initial producer's chain
     -> (ChainFragment -> ChainFragment -> ChainFragment)
     -- ^ pure chain selection
-    -> [ SimMVar s
-          ( ChainFragment
-          , SimMVar s ChainFragment
-          )
-       ]
+    -> [ TVar m ChainFragment ]
        -- ^ list of consumer's mvars
-    -> SimM s
-        (SimMVar s
-          ( ChainProducerState ChainFragment
-          , SimMVar s (ChainProducerState ChainFragment)
-          ))
-bindConsumersToProducerN chain selectChain ts = do
-  chainvar <- newEmptyMVar >>= newMVar . (ChainProducerState chain [],)
-  fork (go chainvar (zip [1..] ts))
-  return chainvar
+    -> m (TVar m ChainFragment)
+selectChainM chain select ts = do
+  v <- atomically $ newTVar chain
+  fork $ go v ts
+  return v
   where
-
-  -- fork a thread for each listener
-  go chainvar [] = return ()
-  go chainvar ((i, m) : ms) = do
-    fork $ listen i m chainvar
-    go chainvar ms
+  go v [] = return ()
+  go v (m:ms) = do
+    fork $ listen v m
+    go v ms
 
   listen
-    :: Int
-    -> SimMVar s
-      ( ChainFragment
-      , SimMVar s ChainFragment
-      ) -- ^ source
-    -> SimMVar s
-      ( ChainProducerState ChainFragment
-      , SimMVar s (ChainProducerState ChainFragment)
-      ) -- ^ target
-    -> SimM s ()
-  listen i src tgt = forever $ readMVar src >>= \(src_chain, msrc_chain) -> do
-    modifyMVar_ tgt $ \(cps@(ChainProducerState tgt_chain _), mcps) -> do
-      let !cps' = cps { chainState = selectChain tgt_chain src_chain }
-      x <- tryPutMVar mcps cps'
-      say $ "bind:listen:tryPutMVar: (" ++ show i ++ "): " ++ show x
-      say $ "bind:listen:tryPutMVar: (" ++ show i ++ "): " ++ show (chainReaders cps')
-      say $ "bind:listen:modifyMVar: (" ++ show i ++ "): " ++ show (chainState cps')
-      mcps' <- newEmptyMVar
-      return (cps', mcps')
-    -- block until new changes
-    void $ readMVar msrc_chain
+    :: TVar m Chain
+    -> TVar m Chain
+    -> m ()
+  listen v m = forever $
+      atomically $ do
+        candidateChain <- readTVar m
+        currentChain   <- readTVar v
+        let !newChain = select currentChain candidateChain
+        if newChain /= currentChain
+          then writeTVar v newChain
+          else retry
+
+bindProducer
+  :: (MonadSTM m stm, MonadFork m)
+  => TVar m Chain
+  -> m (TVar m (ChainProducerState Chain))
+bindProducer v = do
+  cpsVar <- atomically $ do
+    c <- readTVar v
+    newTVar (ChainProducerState c [])
+
+  fork $ forever $ do
+    atomically $ do
+      c   <- readTVar v
+      cps <- readTVar cpsVar
+      if (chainState cps /= c)
+        then
+          let cps' = ChainProducerState
+                { chainState   = c
+                , chainReaders = map (updateReader c (chainState cps)) (chainReaders cps)
+                }
+          in writeTVar cpsVar cps'
+        else retry
+
+  return cpsVar
+
+  where
+  updateReader :: Chain -> Chain -> ReaderState -> ReaderState
+  updateReader new old r@ReaderState {readerIntersection} =
+    case Chain.lookupBySlot new (fst readerIntersection) of
+      -- reader intersection is on the new chain
+      FT.Position _ b _ | blockId b == snd readerIntersection
+                      -> r
+      -- reader intersection is not on the new chain
+      _                 ->
+        case Chain.intersectChains new old of
+          -- the two chains have intersection
+          Just p -> r { readerIntersection = p }
+          -- the two chains do not intersect
+          _      -> r
+
+bindConsumersToProducerN
+  :: forall m stm. (MonadFork m, MonadSTM m stm)
+  => Chain
+  -> (Chain -> Chain -> Chain)
+  -> [ TVar m Chain ]
+  -> m (TVar m (ChainProducerState Chain))
+bindConsumersToProducerN chain select ts =
+  selectChainM chain select ts >>= bindProducer
 
 -- |
 -- Simulate a node which is subscribed to two producers and has a single
@@ -400,7 +425,7 @@ bindConsumersToProducerN chain selectChain ts = do
 --               v
 --           listener
 nodeSim
-    :: SimProbe s Chain
+    :: SimSTM.Probe s Chain
     -> Chain
     -- ^ initial chain of producer 1
     -> Chain
@@ -413,58 +438,50 @@ nodeSim v chain1 chain2 = do
 
     -- start producer1
     fork $ do
-        mcps     <- newEmptyMVar
-        chainvar <- newMVar (ChainProducerState chain1 [], mcps)
+        chainvar <- atomically $ newTVar (ChainProducerState chain1 [])
         producerSideProtocol1 (exampleProducer chainvar) 1 chan1
 
     -- start producer2
     fork $ do
-        mcps     <- newEmptyMVar
-        chainvar <- newMVar (ChainProducerState chain2 [], mcps)
+        chainvar <- atomically $ newTVar (ChainProducerState chain2 [])
         producerSideProtocol1 (exampleProducer chainvar) 2 chan2
 
     -- consumer listening to producer1
     let genesisBlock1 = case chainGenesis chain1 of
             Nothing -> error "sim2: chain1 is empty"
             Just b  -> b
-    mchain1   <- newEmptyMVar
-    chainvar1 <- newMVar (Chain.singleton genesisBlock1, mchain1)
+    chainvar1 <- atomically $ newTVar (Chain.singleton genesisBlock1)
     fork $
-        consumerSideProtocol1 (exampleConsumer chainvar1) 1 False (flipSimChan chan1)
+        consumerSideProtocol1 (exampleConsumer chainvar1) 1 (flipSimChan chan1)
 
     -- consumer listening to producer2
     let genesisBlock2 = case chainGenesis chain2 of
             Nothing -> error "sim2: chain2 is empty"
             Just b  -> b
-    mchain2   <- newEmptyMVar
-    chainvar2 <- newMVar (Chain.singleton genesisBlock2 , mchain2)
+    chainvar2 <- atomically $ newTVar (Chain.singleton genesisBlock2)
     fork $
-        consumerSideProtocol1 (exampleConsumer chainvar2) 2 False (flipSimChan chan2)
+        consumerSideProtocol1 (exampleConsumer chainvar2) 2 (flipSimChan chan2)
 
     fork $ do
         chainvar <- bindConsumersToProducerN
-            (Chain.singleton genesisBlock1)
-            Chain.selectChain
-            [chainvar1, chainvar2]
+          (Chain.singleton genesisBlock1)
+          (Chain.selectChain)
+          [chainvar1, chainvar2]
         producerSideProtocol1 (exampleProducer chainvar) 3 chan3
 
-    mchain    <- newEmptyMVar
-    chainvar3 <- newNamedMVar (Just "chainvar-3")
-      ( (Chain.fromList [genesisBlock1, Block 5 1 2 ""])
-      , mchain
-      )
+    chainvar3 <- atomically $ newTVar
+      (Chain.fromList [genesisBlock1, Block 5 1 2 ""])
     fork
-      $ consumerSideProtocol1 (exampleConsumer chainvar3) 3 False (flipSimChan chan3)
+      $ consumerSideProtocol1 (exampleConsumer chainvar3) 3 (flipSimChan chan3)
 
-    fork $ forever $ do
-      (chain, mchain) <- readMVar chainvar3
-      void $ probeOutput v chain
-      void $ readMVar mchain
+    timer 1 $ do
+      chain <- atomically $ readTVar chainvar3
+      probeOutput v chain
 
 runNodeSim :: Chain -> Chain -> (Trace, ProbeTrace Chain)
 runNodeSim pchain1 pchain2 = runST $ do
   v <- newProbe
-  trace <- runSimMST (mkStdGen 0) (nodeSim v pchain1 pchain2)
+  trace <- runSimMST (nodeSim v pchain1 pchain2)
   probe <- readProbe v
   return (trace, probe)
 
@@ -478,19 +495,10 @@ prop_node (Chain.ChainFork pchain1 pchain2) =
        "\nprocuder chain2: " ++ show pchain2 ++
        "\nresult chain: " ++ show rchain ++
        "\nselect chain: " ++ show schain ++
-       "\ntrace:\n" ++ unlines (map show $ filter Sim.filterTrace tr)
+       "\ntrace:\n" ++ unlines (map show tr)
        )
     $ rchain == schain
 
--- This case fails!
--- Block { blockId = 2 } ends up twice in the chain:
--- * readChainUpdate sends it
--- * immediatelly after tryReadChain sends it too
--- The reader state has not progressed between the calls
-prop_node1 :: Property
-prop_node1 = prop_node $ Chain.ChainFork
-    (ChainFragment (FT.fromList [Block {blockId = 1, prevBlockId = 0, blockSlot = 1, blockPayload = "VYMB"}]))
-    (ChainFragment (FT.fromList [Block {blockId = 1, prevBlockId = 0, blockSlot = 1, blockPayload = "VYMB"},Block {blockId = 2, prevBlockId = 1, blockSlot = 2, blockPayload = "FEWU"},Block {blockId = 3, prevBlockId = 2, blockSlot = 3, blockPayload = "ECJK"}]))
 --
 -- Simulation of composition of producer and consumer
 --

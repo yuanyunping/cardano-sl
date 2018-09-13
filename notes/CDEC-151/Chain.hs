@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE TemplateHaskell       #-}
+
 module Chain
     ( ChainFragment (..)
     , Chain
@@ -12,6 +13,7 @@ module Chain
     , lookupByIndexFromEnd
     , splitBeforeSlot
     , findIntersection
+    , intersectChains
     , findNext
 
     , addBlock
@@ -71,6 +73,8 @@ import           Block (Block (..), BlockId, ChainMeasure (..), Point, Slot, blo
                         genNBlocks)
 import qualified Chain.Abstract as Chain.Abs
 import           Chain.Update (ChainUpdate (..))
+
+{-# ANN module "HLint: ignore Reduce duplication" #-}
 
 --
 -- Blockchain fragment data type.
@@ -142,6 +146,16 @@ findIntersection c hpoint points =
     go p (p':ps)
         | pointOnChain c p' = Just (p', p)
         | otherwise         = go p' ps
+
+intersectChains :: Chain -> Chain -> Maybe Point
+intersectChains c (ChainFragment t) =
+  case FT.viewr t of
+    EmptyR -> Nothing
+    t' :> b  ->
+      let p = blockPoint b
+      in if pointOnChain c p
+        then Just p
+        else intersectChains c (ChainFragment t')
 
 data AddBlockTest = AddBlockTest Chain Block
   deriving Show
@@ -309,7 +323,7 @@ instance Arbitrary ChainFork where
         chain <- genChain n
         let Just h = chainHead chain
 
-        -- 5% of forks should be equal
+        -- at least 5% of forks should be equal
         equalChains <- frequency [(1, return True), (19, return False)]
         if equalChains
           then return $ ChainFork chain chain
@@ -325,14 +339,16 @@ instance Arbitrary ChainFork where
             return $ ChainFork chain1 chain2
 
     shrink (ChainFork c d) =
-      [ ChainFork (fromList $ L.reverse c') d
+      [ ChainFork (fromList c') d
       | c' <- L.take (length c - 1) $ L.inits $ L.reverse $ absChainFragment c
       , not (null c')
       ] ++
-      [ ChainFork c (fromList $ L.reverse d')
+      [ ChainFork c (fromList d')
       | d' <- L.take (length d - 1) $ L.inits $ L.reverse $ absChainFragment d
       , not (null d')
-      ]
+      ] ++
+      [ChainFork (drop 1 c) (drop 1 d) | length c > 1 && length d > 1]
+
 
 -- Test Chain fork distribution
 -- 5% forks equal
@@ -342,10 +358,10 @@ prop_ChainFork (ChainFork pchain cchain) =
   let plen = Chain.length pchain
       clen = Chain.length cchain
   in withMaxSuccess 1000
-    $ cover (pchain == cchain) 4 "chains are equal"
-    $ cover (plen > clen) 39 "producer chain is longer"
-    $ cover (plen == clen) 4 "chains of equal length"
-    $ cover (clen < plen) 39 "consumer chain is longer"
+    $ cover (pchain == cchain) 3 "chains are equal"
+    $ cover (plen > clen) 38 "producer chain is longer"
+    $ cover (plen == clen) 3 "chains of equal length"
+    $ cover (clen < plen) 38 "consumer chain is longer"
     $    counterexample (show pchain) (validChain pchain)
     .&&. counterexample (show cchain) (validChain cchain)
 

@@ -107,7 +107,7 @@ data ChainProducerState rep = ChainProducerState {
        chainState   :: rep,
        chainReaders :: ReaderStates
      }
-  deriving Show
+  deriving (Eq, Show)
 
 -- | Readers are represented here as a relation.
 invChainProducerState :: ChainProducerState Chain -> Bool

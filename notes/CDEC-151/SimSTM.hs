@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
+
 module SimSTM {-(
   SimF,
   SimM,
@@ -39,6 +40,8 @@ import           Data.STRef.Lazy
 
 import           MonadClass hiding (MVar, Probe, STM, TVar)
 import qualified MonadClass
+
+{-# ANN module "HLint: ignore Use readTVarIO" #-}
 
 
 --
