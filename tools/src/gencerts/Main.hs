@@ -62,7 +62,7 @@ main = do
         decodeConfigFile (configKey cmd) (configFile cmd)
 
     (caDesc, descs) <-
-        fromConfiguration tlsConfig (outDirectories cmd) genRSA256KeyPair <$> genRSA256KeyPair
+        fromConfiguration tlsConfig (outDirectories cmd) genRSA256KeyPair =<< genRSA256KeyPair
 
     let caName =
             certFilename caDesc

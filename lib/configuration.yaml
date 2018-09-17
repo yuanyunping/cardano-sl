@@ -127,8 +127,6 @@ dev: &dev
       altDNS:
         - "localhost"
         - "localhost.localdomain"
-        - "127.0.0.1"
-        - "::1"
 
     clients:
       - organization: "Input Output HK"
@@ -380,8 +378,6 @@ mainnet_base: &mainnet_base
       altDNS:
         - "localhost"
         - "localhost.localdomain"
-        - "127.0.0.1"
-        - "::1"
 
     clients:
       - organization: "Input Output HK"

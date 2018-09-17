@@ -17,10 +17,13 @@ module Cardano.X509.Configuration
 
     -- * Description of Certificates
     , CertDescription(..)
-    , fromConfiguration
 
     -- * Effectful Functions
     , ConfigurationKey(..)
+    , ErrInvalidTLSConfiguration
+    , ErrInvalidAltName
+    , ErrInvalidExpiryDays
+    , fromConfiguration
     , decodeConfigFile
     , genCertificate
     ) where
@@ -46,10 +49,6 @@ import           Data.X509 (AltName (..), DistinguishedName (..),
 import           Data.X509.Validation (ValidationChecks (..), defaultChecks)
 import           Data.Yaml (decodeFileEither, parseMonad, withObject)
 import           GHC.Generics (Generic)
-import           Net.IP (IP, case_, decode)
-import           Net.IPv4 (IPv4 (..))
-import           Net.IPv6 (IPv6 (..))
-import           Network.Transport.Internal (encodeWord32)
 import           System.IO (FilePath)
 import           Time.System (dateCurrent)
 import           Time.Types (DateTime (..))
@@ -58,13 +57,12 @@ import           Data.X509.Extra (signAlgRSA256, signCertificate)
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
-import qualified Data.ByteString.Builder as BS
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Char as Char
 import qualified Data.HashMap.Lazy as HM
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as T
 import qualified Data.X509 as X509
+import qualified Net.IP as IP
 
 
 --
@@ -137,23 +135,54 @@ data CertDescription m pub priv outdir = CertDescription
     }
 
 
+--
+-- Effectful Functions
+--
+
+
+-- | Type-alias for signature readability
+newtype ConfigurationKey = ConfigurationKey
+    { getConfigurationKey :: String
+    } deriving (Eq, Show)
+
+
+newtype ErrInvalidAltName
+    = ErrInvalidAltName String
+    deriving (Show)
+
+instance Exception ErrInvalidAltName
+
+
+newtype ErrInvalidExpiryDays
+    = ErrInvalidExpiryDays String
+    deriving (Show)
+
+instance Exception ErrInvalidExpiryDays
+
+
+newtype ErrInvalidTLSConfiguration
+    = ErrInvalidTLSConfiguration String
+    deriving (Show)
+
+instance Exception ErrInvalidTLSConfiguration
+
+
 -- | Describe a list of certificates to generate & sign from a foreign config
 --
 -- Description can then be used with @genCertificate@ to obtain corresponding
 -- certificate
 fromConfiguration
-    :: Applicative m
+    :: (MonadThrow m, Applicative f)
     => TLSConfiguration -- ^ Foreign TLS configuration / setup
     -> DirConfiguration -- ^ Output directories configuration
-    -> m (pub, priv)    -- ^ Key pair generator
+    -> f (pub, priv)    -- ^ Key pair generator
     -> (pub, priv)      -- ^ Initial / Root key pair
-    -> (CertDescription m pub priv (Maybe String), [CertDescription m pub priv String])
+    -> m (CertDescription f pub priv (Maybe String), [CertDescription f pub priv String])
     -- ^ PKI description matching provided conf, fst = CA, snd = server & clients
-fromConfiguration tlsConf dirConf genKeys (caPub, caPriv) =
-    let
-        caDN = mkDistinguishedName (tlsCa tlsConf)
+fromConfiguration tlsConf dirConf genKeys (caPub, caPriv) = do
+    let caDN = mkDistinguishedName (tlsCa tlsConf)
 
-        caConfig = CertDescription
+    let caConfig = CertDescription
             { certConfiguration = tlsCa tlsConf
             , certSerial        = 1
             , certExtensions    = caExtensionsV3 caDN
@@ -166,12 +195,13 @@ fromConfiguration tlsConf dirConf genKeys (caPub, caPriv) =
             , certChecks        = defaultChecks
             }
 
-        ServerConfiguration tlsServer' serverAltDNS = tlsServer tlsConf
-        svDN = mkDistinguishedName tlsServer'
-        svConfig = CertDescription
+    let ServerConfiguration tlsServer' serverAltDNS = tlsServer tlsConf
+    let svDN = mkDistinguishedName tlsServer'
+    svExtensions <- svExtensionsV3 svDN caDN serverAltDNS
+    let svConfig = CertDescription
             { certConfiguration = tlsServer'
             , certSerial        = 2
-            , certExtensions    = svExtensionsV3 svDN caDN serverAltDNS
+            , certExtensions    = svExtensions
             , certIssuer        = caDN
             , certSubject       = svDN
             , certGenKeys       = genKeys
@@ -181,7 +211,7 @@ fromConfiguration tlsConf dirConf genKeys (caPub, caPriv) =
             , certChecks        = defaultChecks
             }
 
-        clConfigs = forEach (tlsClients tlsConf) $ \(i, tlsClient) ->
+    let clConfigs = forEach (tlsClients tlsConf) $ \(i, tlsClient) ->
             let
                 clDN = mkDistinguishedName tlsClient
                 suffix = if i == 0 then "" else "_" <> show i
@@ -197,18 +227,9 @@ fromConfiguration tlsConf dirConf genKeys (caPub, caPriv) =
                 , certFilename      = "client" <> suffix
                 , certChecks        = defaultChecks { checkFQHN = False }
                 }
-    in
-        (caConfig, svConfig : clConfigs)
 
+    return (caConfig, svConfig : clConfigs)
 
---
--- Effectful Functions
---
-
--- | Type-alias for signature readability
-newtype ConfigurationKey = ConfigurationKey
-    { getConfigurationKey :: String
-    } deriving (Eq, Show)
 
 -- | Decode a configuration file (.yaml). The expected file structure is:
 --     <configuration-key>:
@@ -220,17 +241,18 @@ newtype ConfigurationKey = ConfigurationKey
 -- where the 'configuration-key' represents the target environment (dev, test,
 -- bench, etc.).
 decodeConfigFile
-    :: (MonadIO m, MonadFail m)
+    :: (MonadIO m, MonadThrow m)
     => ConfigurationKey -- ^ Target configuration Key
     -> FilePath         -- ^ Target configuration file
     -> m TLSConfiguration
 decodeConfigFile (ConfigurationKey cKey) filepath =
     decodeFileMonad filepath >>= parseMonad parser
   where
-    errMsg key = "Invalid TLS Configuration: property '"<> key <> "' " <>
-        "not found in configuration file."
+    errMsg key = "property '"<> key <> "' " <> "not found in configuration file."
 
-    decodeFileMonad = (liftIO . decodeFileEither) >=> either (fail . show) return
+    decodeFileMonad = (liftIO . decodeFileEither) >=> either
+        (throwM . ErrInvalidTLSConfiguration . show)
+        return
 
     parser = withObject "TLS Configuration" (parseK cKey >=> parseK "tls")
 
@@ -246,6 +268,10 @@ genCertificate desc = do
     ((pub, priv), now) <- (,) <$> (certGenKeys desc) <*> dateCurrent
 
     let conf = certConfiguration desc
+
+    when (certExpiryDays conf <= 0) $
+        throwM $ ErrInvalidExpiryDays "expiry days should be a positive integer"
+
     let cert = X509.Certificate
             { X509.certVersion      = 2
             , X509.certSerial       = fromIntegral (certSerial desc)
@@ -304,27 +330,22 @@ usExtensionsV3 purpose subDN issDN =
         ]
 
 
-svExtensionsV3 :: DistinguishedName -> DistinguishedName -> NonEmpty String -> [ExtensionRaw]
-svExtensionsV3 subDN issDN altNames =
-    let
-        subjectAltName = ExtSubjectAltName ( parseAltName <$> NonEmpty.toList altNames)
-    in
-        extensionEncode False subjectAltName : usExtensionsV3 KeyUsagePurpose_ServerAuth subDN issDN
+svExtensionsV3 :: MonadThrow m => DistinguishedName -> DistinguishedName -> NonEmpty String -> m [ExtensionRaw]
+svExtensionsV3 subDN issDN altNames = do
+    subjectAltName <-
+        ExtSubjectAltName <$> mapM parseAltName (NonEmpty.toList altNames)
 
-parseAltName :: String -> AltName
-parseAltName name = do
-    let
-        ipv4ToByteString :: IPv4 -> ByteString
-        ipv4ToByteString (IPv4 bytes) = encodeWord32 bytes
-        ipv6ToByteString :: IPv6 -> ByteString
-        ipv6ToByteString ipv6 = LBS.toStrict (BS.toLazyByteString $ ipv6ByteStringBuilder ipv6)
-        ipv6ByteStringBuilder :: IPv6 -> BS.Builder
-        ipv6ByteStringBuilder (IPv6 parta partb) = BS.word64BE parta <> BS.word64BE partb
+    return $
+        extensionEncode False subjectAltName :
+        usExtensionsV3 KeyUsagePurpose_ServerAuth subDN issDN
 
-        go :: Maybe IP -> AltName
-        go (Just address) = AltNameIP $ case_ ipv4ToByteString ipv6ToByteString address
-        go Nothing = AltNameDNS name
-    go $ decode $ T.pack name
+
+parseAltName :: MonadThrow m => String -> m AltName
+parseAltName name =
+    case IP.decode (T.pack name) of
+        Just _  -> throwM (ErrInvalidAltName "IP was given as an AltName but it should be a DNS name")
+        Nothing -> return (AltNameDNS name)
+
 
 clExtensionsV3 :: DistinguishedName -> DistinguishedName -> [ExtensionRaw]
 clExtensionsV3 =
