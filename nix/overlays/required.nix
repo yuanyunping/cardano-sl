@@ -20,8 +20,6 @@ in {
       configureFlags = (drv.configureFlags or []) ++ [
         "-f-asserts"
       ];
-      # waiting on load-command size fix in dyld
-      doCheck = ! pkgs.stdenv.isDarwin;
       passthru = {
         inherit enableProfiling;
       };
@@ -34,10 +32,8 @@ in {
     cardano-sl-node-static = justStaticExecutablesGitRev self.cardano-sl-node;
     cardano-sl-explorer-static = justStaticExecutablesGitRev self.cardano-sl-explorer;
     cardano-report-server-static = justStaticExecutablesGitRev self.cardano-report-server;
-    cardano-sl-tools-static = justStaticExecutablesGitRev (overrideCabal super.cardano-sl-tools (drv: {
-      # waiting on load-command size fix in dyld
-      doCheck = ! pkgs.stdenv.isDarwin;
-    }));
+    cardano-sl-faucet-static = justStaticExecutablesGitRev self.cardano-sl-faucet;
+    cardano-sl-tools-static = justStaticExecutablesGitRev super.cardano-sl-tools;
     # Undo configuration-nix.nix change to hardcode security binary on darwin
     # This is needed for macOS binary not to fail during update system (using http-client-tls)
     # Instead, now the binary is just looked up in $PATH as it should be installed on any macOS

@@ -29,6 +29,16 @@ with pkgs.lib;
 with pkgs.haskell.lib;
 
 let
+  # # Overlay logic for *haskell* packages.
+  # requiredOverlay    = import ./nix/overlays/required.nix     pkgs localLib enableProfiling;
+  # benchmarkOverlay   = import ./nix/overlays/benchmark.nix    pkgs localLib;
+  # debugOverlay       = import ./nix/overlays/debug.nix        pkgs;
+  # # Disabling optimization for cardano-sl packages will
+  # # return a build ~20% faster (measured in DEVOPS-1032).
+  # fasterBuildOverlay = import ./nix/overlays/faster-build.nix pkgs localLib;
+  # dontCheckOverlay   = import ./nix/overlays/dont-check.nix   pkgs;
+  # metricOverlay      = import ./nix/overlays/metric.nix       pkgs;
+
   justStaticExecutablesGitRev = import ./scripts/set-git-rev {
     inherit pkgs gitrev;
     inherit (cardanoPkgs) ghc;
@@ -108,25 +118,15 @@ let
     });
   };
 
+  # Overlay logic for *haskell* packages.
+  requiredOverlay    = import ./nix/overlays/required.nix     pkgs localLib enableProfiling;
+  benchmarkOverlay   = import ./nix/overlays/benchmark.nix    pkgs localLib;
+  debugOverlay       = import ./nix/overlays/debug.nix        pkgs;
   # Disabling optimization for cardano-sl packages will
   # return a build ~20% faster (measured in DEVOPS-1032).
-  fasterBuildOverlay = self: super: {
-    mkDerivation = args: super.mkDerivation (args // optionalAttrs (localLib.isCardanoSL args.pname) {
-      configureFlags = (args.configureFlags or []) ++ [ "--ghc-options=-O0" ];
-    });
-  };
-
-  dontCheckOverlay = self: super: {
-    mkDerivation = args: super.mkDerivation (args // {
-      doCheck = false;
-    });
-  };
-
-  metricOverlay = self: super: {
-    mkDerivation = args: super.mkDerivation (args // {
-      enablePhaseMetrics = true;
-    });
-  };
+  fasterBuildOverlay = import ./nix/overlays/faster-build.nix pkgs localLib;
+  dontCheckOverlay   = import ./nix/overlays/dont-check.nix   pkgs;
+  metricOverlay      = import ./nix/overlays/metric.nix       pkgs;
 
   # This will yield a set of haskell packages, based on the given compiler.
   cardanoPkgsBase = ((import ./pkgs { inherit pkgs; }).override {
