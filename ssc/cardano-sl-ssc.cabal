@@ -80,7 +80,6 @@ library
                      , containers
                      , cryptonite
                      , data-default
-                     , deepseq
                      , ether
                      , ekg-core
                      , exceptions

@@ -18,7 +18,7 @@ import           Serokell.Util (listJson)
 import           Test.Hspec (Spec, describe)
 import           Test.Hspec.QuickCheck (modifyMaxSuccess, prop)
 import           Test.QuickCheck (Gen, arbitrary, choose)
-import           Test.QuickCheck.Monadic (pick, run)
+import           Test.QuickCheck.Monadic (pick)
 
 import           Pos.Binary.Class (serialize')
 import           Pos.Block.Logic (applyBlocksUnsafe)
@@ -35,7 +35,6 @@ import           Pos.Crypto (SecretKey, toPublic)
 import qualified Pos.GState as GS
 import           Pos.Launcher (HasConfigurations)
 import qualified Pos.Lrc as Lrc
-import           Pos.Update.DB (getAdoptedBVFull)
 import           Pos.Util.Util (getKeys)
 
 import           Test.Pos.Block.Logic.Mode (BlockProperty, TestParams (..),
@@ -245,10 +244,7 @@ genAndApplyBlockFixedTxs txs = do
                              (EnableTxPayload False)
                              (InplaceDB False)
     let blund = emptyBlund & _1 . _Right . mainBlockTxPayload .~ txPayload
-    (adoptedBV, adoptedBVD) <- run getAdoptedBVFull
     lift $ applyBlocksUnsafe dummyProtocolMagic
-                             adoptedBV
-                             adoptedBVD
                              (ShouldCallBListener False)
                              (one blund)
                              Nothing

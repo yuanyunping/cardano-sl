@@ -20,11 +20,10 @@ import           Mockable.CurrentTime (realTime)
 import           Pos.AllSecrets (mkAllSecretsSimple)
 import           Pos.Binary.Class (DecoderAttrKind (..), EitherExtRep (..),
                      NonEmptyExtRep (..), fillExtRep)
-import           Pos.Block.Logic.Integrity (VerifyBlockParams (..), VerifyHeaderParams (..),
-                     verifyBlock, verifyHeader)
-import           Pos.Block.Logic.VAR (VerifyBlocksContext,
-                     getVerifyBlocksContext', rollbackBlocks,
-                     verifyAndApplyBlocks, verifyBlocksPrefix)
+import           Pos.Block.Logic.Integrity (VerifyBlockParams (..),
+                     VerifyHeaderParams (..), verifyBlock, verifyHeader)
+import           Pos.Block.Logic.VAR (rollbackBlocks, verifyAndApplyBlocks,
+                     verifyBlocksPrefix)
 import           Pos.Core (Block, EpochOrSlot (..), SlotId, getBlockHeader)
 import           Pos.Core.Chrono (NE, OldestFirst (..), nonEmptyNewestFirst)
 import           Pos.Core.Common (BlockCount (..), unsafeCoinPortionFromDouble)
@@ -99,14 +98,14 @@ verifyBlocksBenchmark
 verifyBlocksBenchmark !pm !tp !ctx =
     bgroup "block verification"
         [ env (runBlockTestMode tp (genEnv (BlockCount 100)))
-            $ \ ~(vctx, blocks) -> bench "verifyAndApplyBlocks" (verifyAndApplyBlocksB vctx blocks)
+            $ \ ~(curSlot, blocks) -> bench "verifyAndApplyBlocks" (verifyAndApplyBlocksB curSlot blocks)
         -- `verifyBlocksPrefix` will succeed only on the first block, it
         -- requires that blocks are applied.
         , env (runBlockTestMode tp (genEnv (BlockCount 1)))
-            $ \ ~(vctx, blocks) -> bench "verifyBlocksPrefix" (verifyBlocksPrefixB vctx blocks)
+            $ \ ~(curSlot, blocks) -> bench "verifyBlocksPrefix" (verifyBlocksPrefixB curSlot blocks)
         ]
     where
-    genEnv :: BlockCount -> BlockTestMode (VerifyBlocksContext, OldestFirst NE (Block 'AttrExtRep))
+    genEnv :: BlockCount -> BlockTestMode (Maybe SlotId, OldestFirst NE (Block 'AttrExtRep))
     genEnv bCount = do
         initNodeDBs pm slotSecurityParam
         g <- liftIO $ newStdGen
@@ -140,32 +139,31 @@ verifyBlocksBenchmark !pm !tp !ctx =
             curSlot = case mapMaybe (either (const Nothing) Just . unEpochOrSlot . getEpochOrSlot) bs of
                 [] -> Nothing
                 ss -> Just $ maximum ss
-        vctx <- getVerifyBlocksContext' curSlot
-        return $ ( vctx, OldestFirst bs')
+        return $ (curSlot, OldestFirst bs')
 
     verifyAndApplyBlocksB
-        :: VerifyBlocksContext
+        :: Maybe SlotId
         -> OldestFirst NE (Block 'AttrExtRep)
         -> Benchmarkable
-    verifyAndApplyBlocksB verifyBlocksCtx blocks =
+    verifyAndApplyBlocksB curSlot blocks =
         nfIO
             $ runBTM tp ctx
             $ satisfySlotCheck blocks
-            $ verifyAndApplyBlocks pm verifyBlocksCtx False blocks >>= \case
+            $ verifyAndApplyBlocks pm curSlot False blocks >>= \case
                     Left err -> return (Just err)
                     Right (_, blunds) -> do
                         whenJust (nonEmptyNewestFirst blunds) (rollbackBlocks pm)
                         return Nothing
 
     verifyBlocksPrefixB
-        :: VerifyBlocksContext
+        :: Maybe SlotId
         -> OldestFirst NE (Block 'AttrExtRep)
         -> Benchmarkable
-    verifyBlocksPrefixB verifyBlocksCtx blocks =
+    verifyBlocksPrefixB curSlot blocks =
         nfIO
             $ runBTM tp ctx
             $ satisfySlotCheck blocks
-            $ map fst <$> verifyBlocksPrefix pm verifyBlocksCtx blocks
+            $ map fst <$> verifyBlocksPrefix pm curSlot blocks
 
 -- | Benchmark which runs `verifyHeader`
 verifyHeaderBenchmark
@@ -236,7 +234,7 @@ verifyHeaderBenchmark !pm !tp = env (runBlockTestMode tp genEnv)
 
     benchBlockVerification ~(block, params) =
         nf isVerSuccess $ verifyBlock pm params block
-        
+
 
 runBenchmark :: IO ()
 runBenchmark = do

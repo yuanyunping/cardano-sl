@@ -24,8 +24,8 @@ import           Pos.Binary.Class (BiExtRep (..), DecoderAttrKind (..),
                      EitherExtRep (..), NonEmptyExtRep (..), decodeFull',
                      fillExtRep, serialize')
 import           Pos.Block.Error (ApplyBlocksException, VerifyBlocksException)
-import           Pos.Block.Logic.VAR (getVerifyBlocksContext',
-                     verifyAndApplyBlocks, verifyBlocksPrefix, rollbackBlocks)
+import           Pos.Block.Logic.VAR (rollbackBlocks, verifyAndApplyBlocks,
+                     verifyBlocksPrefix)
 import           Pos.Core (Block, GenericBlock, GenesisBlockchain,
                      MainBlockchain)
 import           Pos.Core.Chrono (NE, OldestFirst (..), nonEmptyNewestFirst)
@@ -267,9 +267,7 @@ main = do
             -> BlockTestMode (Microsecond, Maybe (Either VerifyBlocksException ApplyBlocksException))
         validate pm blocks = do
             verStart <- realTime
-            -- omitting current slot for simplicity
-            ctx <- getVerifyBlocksContext' Nothing
-            res <- (force . either Left (Right . fst)) <$> verifyBlocksPrefix pm ctx blocks
+            res <- (force . either Left (Right . fst)) <$> verifyBlocksPrefix pm Nothing blocks
             verEnd <- realTime
             return (verEnd - verStart, either (Just . Left) (const Nothing) res)
 
@@ -280,8 +278,7 @@ main = do
             -> BlockTestMode (Microsecond, Maybe (Either VerifyBlocksException ApplyBlocksException))
         validateAndApply pm blocks = do
             verStart <- realTime
-            ctx <- getVerifyBlocksContext' Nothing
-            res <- force <$> verifyAndApplyBlocks pm ctx False blocks
+            res <- force <$> verifyAndApplyBlocks pm Nothing False blocks
             verEnd <- realTime
             case res of
                 Left _ -> return ()

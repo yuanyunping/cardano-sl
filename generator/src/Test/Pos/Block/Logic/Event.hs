@@ -6,7 +6,6 @@ module Test.Pos.Block.Logic.Event
          runBlockEvent
        , runBlockScenario
        , BlockScenarioResult(..)
-       , lastSlot
 
        -- * Exceptions
        , SnapshotMissingEx(..)
@@ -20,11 +19,11 @@ import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified GHC.Exts as IL
 
-import           Pos.Block.Logic.VAR (BlockLrcMode, getVerifyBlocksContext',
-                     rollbackBlocks, verifyAndApplyBlocks)
+import           Pos.Block.Logic.VAR (BlockLrcMode, rollbackBlocks,
+                     verifyAndApplyBlocks)
 import           Pos.Block.Types (Blund)
-import           Pos.Core (Block, EpochOrSlot (..), HasConfiguration,
-                     HeaderHash, getEpochOrSlot)
+import           Pos.Core (EpochOrSlot (..), HasConfiguration, HeaderHash,
+                     getEpochOrSlot)
 import           Pos.Core.Chrono (NE, NewestFirst, OldestFirst)
 import           Pos.Core.Slotting (SlotId)
 import           Pos.DB.Pure (DBPureDiff, MonadPureDB, dbPureDiff, dbPureDump,
@@ -60,12 +59,6 @@ data BlockEventResult
     | BlockEventFailure IsExpected SomeException
     | BlockEventDbChanged DbNotEquivalentToSnapshot
 
-lastSlot :: [Block attr] -> Maybe SlotId
-lastSlot bs =
-    case mapMaybe (either (const Nothing) Just . unEpochOrSlot . getEpochOrSlot) bs of
-        [] -> Nothing
-        ss -> Just $ maximum ss
-
 verifyAndApplyBlocks' ::
        ( HasConfiguration
        , BlockLrcMode BlockTestContext m
@@ -78,12 +71,15 @@ verifyAndApplyBlocks' blunds = do
         --`MonadBlockGen` which locally changes its current slot.  We just take
         -- the last slot of all generated blocks.
         curSlot :: Maybe SlotId
-        curSlot = lastSlot (map fst . IL.toList $ blunds)
-    ctx <- getVerifyBlocksContext' curSlot
-
+        curSlot
+            = case mapMaybe (either (const Nothing) Just . unEpochOrSlot . getEpochOrSlot . fst)
+                    . IL.toList
+                    $ blunds of
+                [] -> Nothing
+                ss -> Just $ maximum ss
     satisfySlotCheck blocks $ do
         _ :: (HeaderHash, NewestFirst [] (Blund attr)) <- eitherToThrow =<<
-            verifyAndApplyBlocks dummyProtocolMagic ctx True blocks
+            verifyAndApplyBlocks dummyProtocolMagic curSlot True blocks
         return ()
   where
     blocks = fst <$> blunds

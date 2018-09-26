@@ -30,7 +30,6 @@ module Pos.Ssc.Types
        , createSscContext
        ) where
 
-import           Control.DeepSeq (NFData)
 import           Control.Lens (makeLenses)
 import           Data.Default (Default, def)
 import qualified Data.HashMap.Strict as HM
@@ -68,8 +67,6 @@ data SscGlobalState = SscGlobalState
       -- received from stakeholders.
     , _sgsVssCertificates :: !VCD.VssCertData
     } deriving (Eq, Show, Generic)
-
-instance NFData SscGlobalState
 
 makeLenses ''SscGlobalState
 
