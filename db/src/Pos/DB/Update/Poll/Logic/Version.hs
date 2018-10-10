@@ -151,6 +151,7 @@ bvmMatchesBVD
     , maybe True (== bvdUpdateImplicit)    bvmUpdateImplicit
     , maybe True (== bvdSoftforkRule)      bvmSoftforkRule
     , maybe True (== bvdTxFeePolicy)       bvmTxFeePolicy
+    -- INFO mhueschen | this seems fine as is - no leakage of unlock epoch info
     , maybe True (== bvdUnlockStakeEpoch)  bvmUnlockStakeEpoch
     ]
 

@@ -216,6 +216,8 @@ gsMaxTxSize = bvdMaxTxSize <$> gsAdoptedBVData
 gsMaxProposalSize :: MonadGState m => m Byte
 gsMaxProposalSize = bvdMaxProposalSize <$> gsAdoptedBVData
 
+-- INFO mhueschen | this function is another source of "leakage"
+-- for unlockStateEpoch, but it is only used in this module
 gsUnlockStakeEpoch :: MonadGState m => m EpochIndex
 gsUnlockStakeEpoch = bvdUnlockStakeEpoch <$> gsAdoptedBVData
 
@@ -224,3 +226,4 @@ gsIsBootstrapEra :: MonadGState m => EpochIndex -> m Bool
 gsIsBootstrapEra epoch = do
     unlockStakeEpoch <- gsUnlockStakeEpoch
     pure $ isBootstrapEra unlockStakeEpoch epoch
+-- INFO mhueschen | we stubbed out isBootstrapEra, so this gets stubbed out too

@@ -76,7 +76,12 @@ isBootstrapEra
     -> EpochIndex -- ^ Epoch in question (for which we determine whether it
                   --                      belongs to the bootstrap era).
     -> Bool
+isBootstrapEra _unlockStakeEpoch _epoch = True
+-- TODO mhueschen | assess if this is fine
+-- we will never unlock stake in this codebase
+{-
 isBootstrapEra unlockStakeEpoch epoch =
     epoch < unlockStakeEpoch
+-}
 
 deriveSafeCopySimple 0 'base ''EpochIndex

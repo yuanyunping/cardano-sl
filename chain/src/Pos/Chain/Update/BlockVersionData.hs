@@ -121,6 +121,7 @@ deriveJSON S.defaultOptions ''BlockVersionData
 -- instead of unlock stake epoch.
 isBootstrapEraBVD :: BlockVersionData -> EpochIndex -> Bool
 isBootstrapEraBVD adoptedBVD = isBootstrapEra (bvdUnlockStakeEpoch adoptedBVD)
+-- INFO mhueschen | we stubbed out isBootstrapEra, so this gets stubbed out too
 
 deriveSimpleBi ''BlockVersionData [
     Cons 'BlockVersionData [

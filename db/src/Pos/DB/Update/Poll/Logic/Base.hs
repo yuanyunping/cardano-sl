@@ -249,7 +249,7 @@ verifyNextBVMod
 verifyNextBVMod upId epoch
   BlockVersionData { bvdScriptVersion = oldSV
                    , bvdMaxBlockSize = oldMBS
-                   , bvdUnlockStakeEpoch = oldUnlockStakeEpoch
+                   -- , bvdUnlockStakeEpoch = oldUnlockStakeEpoch
                    }
   BlockVersionModifier { bvmScriptVersion = newSVM
                        , bvmMaxBlockSize = newMBSM
@@ -263,6 +263,10 @@ verifyNextBVMod upId epoch
       newMBS > oldMBS * 2 =
         throwError
            $ PollLargeMaxBlockSize (oldMBS * 2) newMBS upId
+    -- INFO mhueschen | we should be able to delete this, because it throws
+    -- an error if we try modify the unlockStakeEpoch after we've already
+    -- unlocked. we will never unlock, so this check is no longer needed.
+    {-
     | Just newUnlockStakeEpoch <- newUnlockStakeEpochM,
       oldUnlockStakeEpoch /= newUnlockStakeEpoch = do
           let bootstrap = isBootstrapEra oldUnlockStakeEpoch epoch
@@ -272,6 +276,7 @@ verifyNextBVMod upId epoch
                     oldUnlockStakeEpoch
                     newUnlockStakeEpoch
                     upId
+    -}
     | otherwise = pass
 
 -- | Dummy type for tagging used by 'calcSoftforkThreshold'.

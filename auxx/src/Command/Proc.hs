@@ -307,6 +307,7 @@ createCommandProcs mCoreConfig mTxpConfig hasAuxxMode printAction mDiffusion = r
         let bvmUpdateImplicit = Nothing -- TODO
         let bvmSoftforkRule = Nothing -- TODO
         let bvmTxFeePolicy = Nothing -- TODO
+        -- INFO mhueschen | we might want to rename this to isObftEraField
         bvmUnlockStakeEpoch <- getArgOpt tyEpochIndex "unlock-stake-epoch"
         pure BlockVersionModifier{..}
     , cpExec = return . ValueBlockVersionModifier

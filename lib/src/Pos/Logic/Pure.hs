@@ -117,6 +117,7 @@ blockVersionData = BlockVersionData
           , srThdDecrement = unsafeCoinPortionFromDouble 0
           }
     , bvdTxFeePolicy      = TxFeePolicyUnknown 0 mempty
+    -- INFO mhueschen | this is only used in 1 test + 1 benchmark
     , bvdUnlockStakeEpoch = EpochIndex { getEpochIndex = 0 }
     }
   where

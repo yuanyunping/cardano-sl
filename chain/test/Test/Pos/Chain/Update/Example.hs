@@ -53,6 +53,8 @@ exampleApplicationName = ApplicationName "Golden"
 exampleBlockVersion :: BlockVersion
 exampleBlockVersion = BlockVersion 1 1 1
 
+-- INFO mhueschen | think about whether this test can be repurposed
+-- for verifying OBFT switch
 exampleBlockVersionData0 :: BlockVersionData
 exampleBlockVersionData0 = BlockVersionData
                               (999 :: ScriptVersion)
@@ -75,6 +77,8 @@ exampleBlockVersionData0 = BlockVersionData
         c2' = Coeff (MkFixed 77)
         sfrule = (SoftforkRule (CoinPortion 99) (CoinPortion 99) (CoinPortion 99))
 
+-- INFO mhueschen | think about whether this test can be repurposed
+-- for verifying OBFT switch
 exampleBlockVersionData1 :: BlockVersionData
 exampleBlockVersionData1 = BlockVersionData
     { bvdScriptVersion = 56903
@@ -115,6 +119,8 @@ exampleBlockVersionData1 = BlockVersionData
         }
     }
 
+-- INFO mhueschen | think about whether this test can be repurposed
+-- for verifying OBFT switch
 exampleBlockVersionData2 :: BlockVersionData
 exampleBlockVersionData2 = BlockVersionData
     { bvdScriptVersion = 9061

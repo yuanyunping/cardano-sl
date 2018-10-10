@@ -176,6 +176,7 @@ verifyGState bvd@BlockVersionData {..} curEpoch txAux vtur = do
 verifyBootEra ::
        BlockVersionData -> EpochIndex -> TxAux -> Either ToilVerFailure ()
 verifyBootEra bvd curEpoch TxAux {..} = do
+    -- INFO mhueschen | since we stubbed out isBootstrapEraBVD this should be safe
     when (isBootstrapEraBVD bvd curEpoch) $
         whenNotNull notBootstrapDistrAddresses $
         throwError . ToilNonBootstrapDistr

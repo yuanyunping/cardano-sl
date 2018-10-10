@@ -252,6 +252,7 @@ makePubKeyAddressAuxx ::
     -> m Address
 makePubKeyAddressAuxx nm epochSlots pk = do
     epochIndex <- siEpoch <$> getCurrentSlotInaccurate epochSlots
+    -- INFO mhueschen | possible leak of unlockStakeEpoch
     ibea <- IsBootstrapEraAddr <$> gsIsBootstrapEra epochIndex
     pure $ makePubKeyAddress nm ibea pk
 
