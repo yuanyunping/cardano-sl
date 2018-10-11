@@ -51,7 +51,7 @@ import           Pos.Chain.Update (BlockVersion (..), BlockVersionData (..),
 import           Pos.Core (Coin, CoinPortion (..), EpochIndex, SlotCount,
                      SlotId, TimeDiff (..), addressHash, applyCoinPortionUp,
                      coinPortionDenominator, coinToInteger, difficultyL,
-                     getCoinPortion, isBootstrapEra, sumCoins, unsafeAddCoin,
+                     getCoinPortion, sumCoins, unsafeAddCoin,
                      unsafeIntegerToCoin, unsafeSubCoin)
 import           Pos.Core.Slotting (EpochSlottingData (..), SlottingData,
                      addEpochSlottingData, getCurrentEpochIndex,
@@ -246,14 +246,14 @@ verifyNextBVMod
     -> BlockVersionData
     -> BlockVersionModifier
     -> m ()
-verifyNextBVMod upId epoch
+verifyNextBVMod upId _epoch
   BlockVersionData { bvdScriptVersion = oldSV
                    , bvdMaxBlockSize = oldMBS
                    -- , bvdUnlockStakeEpoch = oldUnlockStakeEpoch
                    }
   BlockVersionModifier { bvmScriptVersion = newSVM
                        , bvmMaxBlockSize = newMBSM
-                       , bvmUnlockStakeEpoch = newUnlockStakeEpochM
+                       -- , bvmUnlockStakeEpoch = newUnlockStakeEpochM
                        }
     | Just newSV <- newSVM,
       newSV /= oldSV + 1 && newSV /= oldSV =

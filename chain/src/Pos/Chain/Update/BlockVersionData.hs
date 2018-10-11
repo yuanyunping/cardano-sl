@@ -3,6 +3,7 @@
 module Pos.Chain.Update.BlockVersionData
        ( BlockVersionData (..)
        , isBootstrapEraBVD
+       , isObftEraBVD
        ) where
 
 import           Universum
@@ -22,7 +23,7 @@ import           Pos.Binary.Class (Cons (..), Field (..), deriveSimpleBi)
 import           Pos.Chain.Update.SoftforkRule
 import           Pos.Core.Binary ()
 import           Pos.Core.Common (CoinPortion, ScriptVersion, TxFeePolicy)
-import           Pos.Core.Slotting (EpochIndex, FlatSlotId, isBootstrapEra)
+import           Pos.Core.Slotting (EpochIndex (..), FlatSlotId, isBootstrapEra)
 import           Pos.Util.Json.Canonical (SchemaError)
 import           Pos.Util.Orphans ()
 
@@ -122,6 +123,12 @@ deriveJSON S.defaultOptions ''BlockVersionData
 isBootstrapEraBVD :: BlockVersionData -> EpochIndex -> Bool
 isBootstrapEraBVD adoptedBVD = isBootstrapEra (bvdUnlockStakeEpoch adoptedBVD)
 -- INFO mhueschen | we stubbed out isBootstrapEra, so this gets stubbed out too
+
+obftEraFlagValue :: EpochIndex
+obftEraFlagValue = EpochIndex 9999999999999999999
+
+isObftEraBVD :: BlockVersionData -> Bool
+isObftEraBVD = (obftEraFlagValue ==) . bvdUnlockStakeEpoch
 
 deriveSimpleBi ''BlockVersionData [
     Cons 'BlockVersionData [
