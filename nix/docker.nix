@@ -11,14 +11,18 @@
 
 # assertOneOf "type" type [ "wallet" "explorer" "node" ];
 
+with import ../lib.nix;
+
 let
-  localLib = import ../lib.nix;
+  useConfigVolume = environment == "demo";
   connectToCluster = connect ({
     inherit environment;
     stateDir = "/wallet/${environment}";
     walletListen = "0.0.0.0:8090";
     walletDocListen = "0.0.0.0:8091";
     ekgListen = "0.0.0.0:8000";
+  } // optionalAttrs useConfigVolume {
+    topologyFile = "/config/topology.yaml";
   } // connectArgs);
 
   startScriptConnect = name: args: writeScriptBin "cardano-start-${name}" ''
@@ -27,12 +31,22 @@ let
     export LOCALE_ARCHIVE="${glibcLocales}/lib/locale/locale-archive"
     if [ ! -d /wallet ]; then
       echo '/wallet volume not mounted, you need to create one with `docker volume create` and pass the correct -v flag to `docker run`'
-    exit 1
+      exit 1
     fi
+
+    ${optionalString useConfigVolume ''
+    if [ ! -f /config/topology.yaml ]; then
+      echo '/config/topology.yaml does not exist.'
+      echo 'You need to bind-mount a config directory to'
+      echo 'the /config volume (the -v flag to `docker run`)'
+      exit 2
+    fi
+    ''}
+
     cd /wallet
-    exec ${connectToCluster.override args}
+    exec ${connectToCluster.override args}${optionalString useConfigVolume " --runtime-args \"$RUNTIME_ARGS\""}
   '';
-  confKey = localLib.environments.${environment}.confKey;
+  confKey = environments.${environment}.confKey;
   startScripts = [
     (startScriptConnect "wallet" {})
     (startScriptConnect "explorer" { executable = "explorer"; })
@@ -66,5 +80,7 @@ in dockerTools.buildImage {
       "8100/tcp" = {}; # explorer api
       "8000/tcp" = {}; # ekg
     };
+  } // optionalAttrs useConfigVolume {
+    Env = [ "RUNTIME_ARGS=" ];
   };
 }
