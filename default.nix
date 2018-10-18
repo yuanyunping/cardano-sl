@@ -153,7 +153,10 @@ let
 
     dockerImages = let
       build = args: self.callPackage ./nix/docker.nix ({
-        inherit (self.cardanoPackages) cardano-sl-node-static;
+        inherit (self.cardanoPackages)
+          cardano-sl-node-static
+          cardano-sl-wallet-new-static
+          cardano-sl-explorer-static;
       } // args);
       makeDockerImage = { environment, ...}:
         build { inherit environment; } // {

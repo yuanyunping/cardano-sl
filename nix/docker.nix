@@ -1,7 +1,8 @@
 { writeScriptBin, dockerTools
 
 , glibcLocales, iana-etc, openssl, bashInteractive, coreutils, utillinux, iproute, iputils, curl, socat
-, cardano-sl-node-static, cardano-sl-config, version
+, cardano-sl-node-static, cardano-sl-wallet-new-static, cardano-sl-explorer-static
+, cardano-sl-config, version
 
 , environment ? "mainnet"
 , type ? null
@@ -47,31 +48,55 @@ let
     exec ${connectToCluster.override args}${optionalString useConfigVolume " --runtime-args \"$RUNTIME_ARGS\""}
   '';
   confKey = environments.${environment}.confKey;
-  startScripts = [
-    (startScriptConnect "wallet" {})
-    (startScriptConnect "explorer" { executable = "explorer"; })
-    (writeScriptBin "cardano-start-node" ''
-      #!/bin/sh
-      set -euo pipefail
 
-      export LOCALE_ARCHIVE="${glibcLocales}/lib/locale/locale-archive"
-      if [ ! -d /state ]; then
-        echo '/state volume not mounted, you need to create one with `docker volume create` and pass the correct -v flag to `docker run`'
-      exit 1
+  startScriptNode = writeScriptBin "cardano-start-node" ''
+    #!/bin/sh
+    set -euo pipefail
 
-      cd /state
-      node_args="--db-path /state/db --rebuild-db --listen 0.0.0.0:3000 --json-log /state/logs/node.json --logs-prefix /state/logs --log-config /state/logs/log-config-node.yaml --metrics +RTS -N2 -qg -A1m -I0 -T -RTS --configuration-file ${cardano-sl-config}/lib/configuration.yaml --configuration-key ${confKey}"
+    export LOCALE_ARCHIVE="${glibcLocales}/lib/locale/locale-archive"
+    if [ ! -d /state ]; then
+      echo '/state volume not mounted, you need to create one with `docker volume create` and pass the correct -v flag to `docker run`'
+    exit 1
 
-      exec ${cardano-sl-node-static}/bin/cardano-node-simple $node_args "$@"
-    '')
-  ];
-  
-in dockerTools.buildImage {
-  name = "cardano-sl";
-  tag = "${version}${if (type != null) then "-" + type else ""}-${environment}";
-  contents = [ iana-etc openssl bashInteractive coreutils utillinux iproute iputils curl socat ]
-   ++ startScripts;
-  config = {
+    cd /state
+    node_args="--db-path /state/db --rebuild-db --listen 0.0.0.0:3000 --json-log /state/logs/node.json --logs-prefix /state/logs --log-config /state/logs/log-config-node.yaml --metrics +RTS -N2 -qg -A1m -I0 -T -RTS --configuration-file ${cardano-sl-config}/lib/configuration.yaml --configuration-key ${confKey}"
+
+    exec ${cardano-sl-node-static}/bin/cardano-node-simple $node_args "$@"
+  '';
+
+  # Layer of tools which aren't going to change much between versions.
+  baseImage = dockerTools.buildImage {
+    name = "cardano-sl-env";
+    contents = [ iana-etc openssl bashInteractive coreutils utillinux iproute iputils curl socat ];
+  };
+
+  # Adds cardano-sl packages to image: core node, wallet, explorer, config.
+  cardanoSLImage = dockerTools.buildImage {
+    name = "cardano-sl";
+    tag = version;
+    fromImage = baseImage;
+    contents = [
+      cardano-sl-wallet-new-static
+      cardano-sl-node-static
+      cardano-sl-explorer-static
+      cardano-sl-config
+    ];
+  };
+
+  # Adds start scripts for the environment.
+  environmentImage = dockerTools.buildImage {
+    name = "cardano-sl";
+    tag = "${version}-${environment}";
+    fromImage = cardanoSLImage;
+    contents = [
+      (startScriptConnect "wallet" { executable = "wallet"; })
+      (startScriptConnect "explorer" { executable = "explorer"; })
+      startScriptNode
+    ];
+    config = mkConfig null;
+  };
+
+  mkConfig = type: {
     Cmd = [ "cardano-start-${if (type != null) then type else "wallet"}" ];
     ExposedPorts = {
       "3000/tcp" = {}; # protocol
@@ -83,4 +108,12 @@ in dockerTools.buildImage {
   } // optionalAttrs useConfigVolume {
     Env = [ "RUNTIME_ARGS=" ];
   };
-}
+
+in
+  # Final image, possibly specialized to a certain node type.
+  dockerTools.buildImage {
+    name = "cardano-sl";
+    tag = "${version}${if (type != null) then "-" + type else ""}-${environment}";
+    fromImage = environmentImage;
+    config = mkConfig type;
+  }
