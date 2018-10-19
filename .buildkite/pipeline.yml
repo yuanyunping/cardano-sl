@@ -21,7 +21,7 @@ steps:
 
   - label: 'Docker image build and push to hub'
     command:
-      - "nix-build scripts/ci/docker-build-push -o docker-build-push"
+      - "nix-build scripts/ci/docker-build-push --argstr dockerHubRepoName inputoutput/cardano-sl -o docker-build-push"
       - "./docker-build-push"
     agents:
       system: x86_64-linux
