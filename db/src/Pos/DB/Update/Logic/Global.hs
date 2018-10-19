@@ -15,6 +15,7 @@ import           Universum
 
 import           Control.Monad.Except (MonadError, runExceptT)
 import           Data.Default (Default (def))
+import           Formatting (build, sformat, (%))
 import           UnliftIO (MonadUnliftIO)
 
 import           Pos.Chain.Block (ComponentBlock (..), headerHashG,
@@ -23,10 +24,11 @@ import           Pos.Chain.Genesis as Genesis (Config, configBlkSecurityParam)
 import           Pos.Chain.Update (ApplicationName, BlockVersion,
                      BlockVersionData, BlockVersionState,
                      ConfirmedProposalState, HasUpdateConfiguration, MonadPoll,
-                     NumSoftwareVersion, PollModifier (..), PollT,
-                     PollVerFailure, ProposalState, SoftwareVersion (..),
-                     USUndo, UpId, UpdatePayload, blockVersionL, execPollT,
-                     execRollT, getAdoptedBV, lastKnownBlockVersion,
+                     MonadPollRead (..), NumSoftwareVersion, PollModifier (..),
+                     PollT, PollVerFailure, ProposalState,
+                     SoftwareVersion (..), USUndo, UpId, UpdatePayload,
+                     blockVersionL, bvdUnlockStakeEpoch, consensusEraBVD,
+                     execPollT, execRollT, getAdoptedBV, lastKnownBlockVersion,
                      reportUnexpectedError, runPollT)
 import           Pos.Core (StakeholderId, addressHash, epochIndexL)
 import           Pos.Core.Chrono (NE, NewestFirst, OldestFirst)
@@ -45,7 +47,7 @@ import           Pos.DB.Update.Poll.Logic.Softfork (processGenesisBlock,
                      recordBlockIssuance)
 import           Pos.Util.AssertMode (inAssertMode)
 import qualified Pos.Util.Modifier as MM
-import           Pos.Util.Wlog (WithLogger, modifyLoggerName)
+import           Pos.Util.Wlog (WithLogger, logDebug, modifyLoggerName)
 
 
 ----------------------------------------------------------------------------
@@ -182,6 +184,16 @@ usVerifyBlocks genesisConfig verifyAllIsKnown blocks =
     processRes (Left failure, _)       = Left failure
     processRes (Right undos, modifier) = Right (modifier, undos)
 
+printDebugStuff :: MonadPollRead m => m ()
+printDebugStuff = do
+    (bv, bvd) <- getAdoptedBVFull
+    logDebug $ sformat
+        ("blockVersion: "%build%".") bv
+    logDebug $ sformat
+        ("consensusEra: "%build%".") (show $ consensusEraBVD bvd :: String)
+    logDebug $ sformat
+        ("bvdUnlockStakeEpoch: "%build%".") (bvdUnlockStakeEpoch bvd)
+
 verifyBlock
     :: (USGlobalVerifyMode ctx m, MonadPoll m, MonadError PollVerFailure m)
     => Genesis.Config
@@ -189,9 +201,11 @@ verifyBlock
     -> Bool
     -> UpdateBlock
     -> m USUndo
-verifyBlock genesisConfig _ _ (ComponentBlockGenesis genBlk) =
+verifyBlock genesisConfig _ _ (ComponentBlockGenesis genBlk) = do
+    printDebugStuff
     execRollT $ processGenesisBlock genesisConfig (genBlk ^. epochIndexL)
-verifyBlock genesisConfig lastAdopted verifyAllIsKnown (ComponentBlockMain header payload) =
+verifyBlock genesisConfig lastAdopted verifyAllIsKnown (ComponentBlockMain header payload) = do
+    printDebugStuff
     execRollT $ do
         verifyAndApplyUSPayload
             genesisConfig
