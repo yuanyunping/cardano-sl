@@ -13,6 +13,13 @@ let
   stateDir = "/state";
   demoCluster' = demoCluster.override {
     inherit stateDir;
+    extraEnv = {
+      # DEMO_LISTEN = "0.0.0.0:3000";
+      # DEMO_ADDRESS = "127.0.0.1:3000";
+      DEMO_WALLET_ADDRESS = "0.0.0.0:8090";
+      DEMO_WALLET_DOC_ADDRESS = "0.0.0.0:8091";
+      DEMO_STATE_DIR = stateDir;
+    };
   };
 
   startScript = writeScriptBin "start-demo-cluster" ''
@@ -37,6 +44,9 @@ let
     contents = [ iana-etc bashInteractive ];
   };
 
+  tcpPorts = ports: listToAttrs (map (port: nameValuePair "${toString port}/tcp" {}) ports);
+  portRange = start: count: range start (start + count - 1);
+
 in
 
   dockerTools.buildImage {
@@ -46,12 +56,19 @@ in
     contents = [ startScript ];
     config = {
       Cmd = [ "start-demo-cluster" ];
-      ExposedPorts = {
-        "3000/tcp" = {}; # protocol
-        "8090/tcp" = {}; # wallet
-        "8091/tcp" = {}; # wallet doc
-        "8100/tcp" = {}; # explorer api
-        "8000/tcp" = {}; # ekg
-      };
+      Env = [
+        "DEMO_NO_CLIENT_AUTH=True"
+      ];
+      ExposedPorts = tcpPorts ([
+        8090  # wallet
+        8091  # wallet doc
+        8100  # explorer api
+        8000  # ekg
+        ]
+        # core node protocol port
+        ++ portRange 3000 demoCluster'.numCoreNodes
+        # relay node protocol port
+        ++ portRange 3100 demoCluster'.numRelayNodes
+      );
     };
   }

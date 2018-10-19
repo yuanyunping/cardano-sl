@@ -20,6 +20,9 @@ with import ../../../lib.nix;
 , keepAlive ? true
 , configurationKey ? "default"
 , disableClientAuth ? false
+
+# Additional environment variables to set before running the demo cluster.
+, extraEnv ? {}
 }:
 
 let
@@ -56,6 +59,7 @@ in writeScript "demo-cluster" ''
   export DEMO_CONFIGURATION_FILE=${configFiles}/configuration.yaml
   ${ifAssetLock "export DEMO_ASSET_LOCK_FILE=${assetLockFile}"}
   ${ifDisableClientAuth "export DEMO_NO_CLIENT_AUTH=True"}
+  ${concatStringsSep "\n" (mapAttrsToList (var: value: "export ${var}=\"${value}\"") extraEnv)}
   # Set to 0 (passing) by default. Tests using this cluster can set this variable
   # to force the `stop_cardano` function to exit with a different code.
   EXIT_STATUS=0
@@ -125,4 +129,6 @@ in writeScript "demo-cluster" ''
     ''}
     sleep infinity
   ''}
-''
+'' // {
+  inherit stateDir runWallet runExplorer numCoreNodes numRelayNodes;
+}
