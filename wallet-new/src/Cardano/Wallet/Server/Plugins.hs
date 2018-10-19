@@ -126,17 +126,16 @@ apiServer protocolMagic (NewWalletBackendParams WalletBackendParams{..}) (passiv
 docServer
     :: (HasConfigurations, HasCompileInfo)
     => NewWalletBackendParams
-    -> Plugin Kernel.WalletMode
-docServer (NewWalletBackendParams WalletBackendParams{..}) = const $
-    serveDocImpl
+    -> Maybe (Text, Plugin Kernel.WalletMode)
+docServer (NewWalletBackendParams WalletBackendParams{..}) = maybe Nothing (\addr -> Just ("doc worker", makeWalletServer addr)) walletDocAddress
+  where
+    makeWalletServer (ip, port) = const $ serveDocImpl
         application
         (BS8.unpack ip)
         port
         (if isDebugMode walletRunMode then Nothing else walletTLSParams)
         (Just defaultSettings)
         Nothing
-  where
-    (ip, port) = walletDocAddress
 
     application :: Kernel.WalletMode Application
     application =
