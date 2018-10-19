@@ -4,10 +4,20 @@
 , cardano-sl-node-static, cardano-sl-wallet-new-static, cardano-sl-explorer-static
 , cardano-sl-config, version
 
-, environment ? "mainnet"
-, type ? null
+# Connect script function.
 , connect
+# Additional arguments to supply to connect script function.
 , connectArgs ? {}
+
+# Used to generate the docker image names
+, repoName ? "cardano-sl"
+
+# Configure start script to use this network.
+, environment ? "mainnet"
+
+# Specialize start script command to one of
+# wallet (default if null), explorer, node.
+, type ? null
 }:
 
 # assertOneOf "type" type [ "wallet" "explorer" "node" ];
@@ -66,13 +76,13 @@ let
 
   # Layer of tools which aren't going to change much between versions.
   baseImage = dockerTools.buildImage {
-    name = "cardano-sl-env";
+    name = "${repoName}-env";
     contents = [ iana-etc openssl bashInteractive coreutils utillinux iproute iputils curl socat ];
   };
 
   # Adds cardano-sl packages to image: core node, wallet, explorer, config.
   cardanoSLImage = dockerTools.buildImage {
-    name = "cardano-sl";
+    name = repoName;
     tag = version;
     fromImage = baseImage;
     contents = [
@@ -85,7 +95,7 @@ let
 
   # Adds start scripts for the environment.
   environmentImage = dockerTools.buildImage {
-    name = "cardano-sl";
+    name = repoName;
     tag = "${version}-${environment}";
     fromImage = cardanoSLImage;
     contents = [
@@ -112,8 +122,8 @@ let
 in
   # Final image, possibly specialized to a certain node type.
   dockerTools.buildImage {
-    name = "cardano-sl";
-    tag = "${version}${if (type != null) then "-" + type else ""}-${environment}";
+    name = repoName;
+    tag = "${version}-${environment}${if (type != null) then "-" + type else ""}";
     fromImage = environmentImage;
     config = mkConfig type;
   }

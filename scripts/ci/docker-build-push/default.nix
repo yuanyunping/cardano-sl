@@ -11,15 +11,18 @@ in
 , iohkPkgs ? import ../../.. { inherit config system; }
 , pkgs ? iohkPkgs.pkgs
 , hostPkgs ? import <nixpkgs> { inherit config system; }
+, dockerHubRepoName ? null
 }:
 
 with hostPkgs;
 with hostPkgs.lib;
 
 let
-  images = attrValues (localLib.forEnvironments ({ environment, ...}:
-    { name = "wallet-${environment}";
-      image = iohkPkgs.dockerImages.${environment}.wallet; }));
+  imageTypes = ["wallet" "explorer" "node"];
+  images = concatLists (attrValues (localLib.forEnvironments ({ environment, ...}:
+    let genericImage = iohkPkgs.dockerImages.${environment};
+    in [ genericImage ] ++ map (type: genericImage.${type}) imageTypes)))
+    ++ [ iohkPkgs.dockerImages.demoCluster ];
 
 in
   writeScript "docker-build-push" (''
@@ -29,13 +32,20 @@ in
 
     export PATH=${lib.makeBinPath [ docker gnused ]}
 
-    repo=cardano-sl
+    ${if dockerHubRepoName == null then ''
+    reponame=cardano-sl
     username="$(docker info | sed '/Username:/!d;s/.* //')"
+    fullrepo="$username/$reponame"
+    '' else ''
+    fullrepo="${dockerHubRepoName}"
+    ''}
 
-  '' + concatMapStringsSep "\n" ({ name, image }: ''
+  '' + concatMapStringsSep "\n" (image: ''
     echo "Loading ${image}"
-    tagged="$username/$repo:${iohkPkgs.cardano-sl-node-static.version}-${name}"
+    tagged="$fullrepo:${image.imageTag}"
     docker load -i "${image}"
-    docker tag "${image.imageName}:${image.imageTag}" "$tagged"
+    if [ "$tagged" != "${image.imageName}:${image.imageTag}" ]; then
+      docker tag "${image.imageName}:${image.imageTag}" "$tagged"
+    fi
     docker push "$tagged"
   '') images)

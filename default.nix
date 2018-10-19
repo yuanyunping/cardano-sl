@@ -22,6 +22,8 @@
 #      - mainnet
 #      - staging
 #      - testnet
+#      - demoCluster -- a cluster running inside a single
+#                       docker container.
 #
 #   - connectScripts -- builds a script which starts a wallet. Run the
 #                       resulting script.
@@ -160,11 +162,15 @@ let
       } // args);
       makeDockerImage = { environment, ...}:
         build { inherit environment; } // {
-          wallet   = build { inherit environment; type = "wallet"; };
-          explorer = build { inherit environment; type = "explorer"; };
-          node     = build { inherit environment; type = "node"; };
+          wallet      = build { inherit environment; type = "wallet"; };
+          explorer    = build { inherit environment; type = "explorer"; };
+          node        = build { inherit environment; type = "node"; };
         };
-    in localLib.forEnvironments makeDockerImage;
+    in localLib.forEnvironments makeDockerImage // {
+      demoCluster = self.callPackage ./nix/docker-demo-cluster.nix {
+        inherit (self.cardanoPackages) cardano-sl-cluster-static;
+      };
+    };
 
     ####################################################################
     # Tests
