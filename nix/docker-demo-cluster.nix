@@ -20,6 +20,9 @@ let
       DEMO_WALLET_DOC_ADDRESS = "0.0.0.0:8091";
       DEMO_STATE_DIR = stateDir;
     };
+    relayBindAddr = "0.0.0.0";
+    walletBindAddr = "0.0.0.0";
+    disableClientAuth = true;
   };
 
   startScript = writeScriptBin "start-demo-cluster" ''

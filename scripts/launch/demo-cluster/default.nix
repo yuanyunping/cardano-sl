@@ -23,6 +23,8 @@ with import ../../../lib.nix;
 , configurationKey ? "default"
 , disableClientAuth ? false
 , useLegacyDataLayer ? false
+, relayBindAddr ? "127.0.0.1"
+, walletBindAddr ? "127.0.0.1"
 
 # Additional environment variables to set before running the demo cluster.
 , extraEnv ? {}
@@ -33,10 +35,12 @@ let
   cardanoDeps = [ cardano-sl-tools cardano-sl-wallet-new-static cardano-sl-node-static ];
   demoClusterDeps = [ jq coreutils curl gnused openssl ];
   allDeps =  demoClusterDeps ++ (optionals (!useStackBinaries ) cardanoDeps);
+  walletPort = "8090";
   walletConfig = {
     inherit stateDir disableClientAuth useLegacyDataLayer;
     topologyFile = walletTopologyFile;
     environment = "demo";
+    walletListen = "${walletBindAddr}:${walletPort}";
   };
   walletEnvironment = if launchGenesis then {
     environment = "override";
@@ -136,7 +140,7 @@ in writeScript "demo-cluster" ''
   for i in {0..${builtins.toString (numRelayNodes - 1)}}
   do
     echo -e "loggerTree:\n  severity: Debug+\n  file: relay$i.log" > ${stateDir}/logs/log-config-relay$i.yaml
-    node_args="--db-path ${stateDir}/relay-db$i --rebuild-db --listen 127.0.0.1:$((3100 + i)) --json-log ${stateDir}/logs/relay$i.json --logs-prefix ${stateDir}/logs --log-config ${stateDir}/logs/log-config-relay$i.yaml --system-start $system_start --metrics +RTS -N2 -qg -A1m -I0 -T -RTS --node-id relay$i --topology ${topologyFile} --configuration-file $config_files/configuration.yaml --configuration-key ${configurationKey}"
+    node_args="--db-path ${stateDir}/relay-db$i --rebuild-db --listen ${relayBindAddr}:$((3100 + i)) --json-log ${stateDir}/logs/relay$i.json --logs-prefix ${stateDir}/logs --log-config ${stateDir}/logs/log-config-relay$i.yaml --system-start $system_start --metrics +RTS -N2 -qg -A1m -I0 -T -RTS --node-id relay$i --topology ${topologyFile} --configuration-file $config_files/configuration.yaml --configuration-key ${configurationKey}"
     echo Launching relay node $i: cardano-node-simple $node_args
     ${stackExec}cardano-node-simple $node_args &> ${stateDir}/logs/relay$i.output &
     relay_pid[$i]=$!
@@ -152,7 +156,7 @@ in writeScript "demo-cluster" ''
     SYNCED=0
     while [[ $SYNCED != 100 ]]
     do
-      PERC=$(curl --silent --cacert ${stateDir}/tls/client/ca.crt --cert ${stateDir}/tls/client/client.pem https://${demoWallet.walletListen}/api/v1/node-info | jq .data.syncProgress.quantity)
+      PERC=$(curl --silent --cacert ${stateDir}/tls/client/ca.crt --cert ${stateDir}/tls/client/client.pem https://127.0.0.1:${walletPort}/api/v1/node-info | jq .data.syncProgress.quantity)
       if [[ $PERC == "100" ]]
       then
         echo Blockchain Synced: $PERC%
@@ -176,7 +180,7 @@ in writeScript "demo-cluster" ''
       for i in {0..${builtins.toString numImportedWallets}}
       do
           echo "Importing key$i.sk ..."
-          curl https://${demoWallet.walletListen}/api/internal/import-wallet \
+          curl https://127.0.0.1:${walletPort}/api/internal/import-wallet \
           --cacert ${stateDir}/tls/client/ca.crt \
           --cert ${stateDir}/tls/client/client.pem \
           -X POST \
