@@ -240,7 +240,10 @@ let
     demoCluster = self.callPackage ./scripts/launch/demo-cluster {
       inherit useStackBinaries;
       inherit (self.cardanoPackages)
-        cardano-sl cardano-sl-cluster;
+        cardano-sl
+        cardano-sl-tools
+        cardano-sl-wallet-new-static
+        cardano-sl-node-static;
     };
 
     ####################################################################
