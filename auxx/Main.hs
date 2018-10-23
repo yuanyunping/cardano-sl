@@ -32,7 +32,7 @@ import           Pos.Util (logException)
 import           Pos.Util.CompileInfo (HasCompileInfo, withCompileInfo)
 import           Pos.Util.Config (ConfigurationException (..))
 import           Pos.Util.UserSecret (usVss)
-import           Pos.Util.Wlog (LoggerName, logInfo)
+import           Pos.Util.Wlog (LoggerName, logInfo, usingLoggerName)
 import           Pos.WorkMode (EmptyMempoolExt, RealMode)
 
 import           AuxxOptions (AuxxAction (..), AuxxOptions (..),
@@ -52,10 +52,10 @@ correctNodeParams AuxxOptions {..} np = do
         Nothing -> do
             tempDir <- Temp.getCanonicalTemporaryDirectory
             dbPath <- Temp.createTempDirectory tempDir "nodedb"
-            logInfo $ sformat ("Temporary db created: "%shown) dbPath
+            usingLoggerName loggerName $ logInfo $ sformat ("Temporary db created: "%shown) dbPath
             return (dbPath, True)
         Just dbPath -> do
-            logInfo $ sformat ("Supplied db used: "%shown) dbPath
+            usingLoggerName loggerName $ logInfo $ sformat ("Supplied db used: "%shown) dbPath
             return (dbPath, False)
     let np' = np
             { npNetworkConfig = networkConfig
@@ -107,7 +107,7 @@ action opts@AuxxOptions {..} command = do
                                   (runWithConfig pa)
   where
     runWithoutNode :: PrintAction IO -> IO ()
-    runWithoutNode printAction = printAction "Mode: light" >> rawExec Nothing Nothing Nothing opts Nothing command
+    runWithoutNode printAction = printAction "Mode: light" >> (usingLoggerName "runWithoutNode" $ rawExec Nothing Nothing Nothing opts Nothing command)
 
     runWithConfig
         :: HasConfigurations

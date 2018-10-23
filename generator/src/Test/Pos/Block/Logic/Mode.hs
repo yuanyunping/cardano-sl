@@ -108,7 +108,7 @@ import           Pos.Util.CompileInfo (withCompileInfo)
 import           Pos.Util.LoggerName (HasLoggerName' (..), askLoggerNameDefault,
                      modifyLoggerNameDefault)
 import           Pos.Util.Util (HasLens (..))
-import           Pos.Util.Wlog (HasLoggerName (..), LoggerName)
+import           Pos.Util.Wlog (HasLoggerName (..), LoggerName, usingLoggerName)
 import           Pos.WorkMode (EmptyMempoolExt)
 
 import           Test.Pos.Block.Logic.Emulation (Emulation (..), runEmulation,
@@ -268,7 +268,7 @@ initBlockTestContext genesisConfig tp@TestParams {..} callback = do
             let _gscLrcContext = LrcContext {..}
             putLrcCtx _gscLrcContext
             btcUpdateContext <- mkUpdateContext epochSlots
-            btcSscState <- mkSscState epochSlots
+            btcSscState <- usingLoggerName "generator" $ mkSscState epochSlots
             _gscSlogGState <- mkSlogGState
             btcTxpMem <- mkTxpLocalData
             let btcTxpGlobalSettings = txpGlobalSettings genesisConfig _tpTxpConfiguration

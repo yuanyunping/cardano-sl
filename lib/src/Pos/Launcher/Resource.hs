@@ -70,7 +70,7 @@ import           Pos.Util.Log.LoggerConfig (defaultInteractiveConfiguration,
                      isWritingToConsole, lcLoggerTree, ltHandlers)
 import           Pos.Util.Wlog (LoggerConfig (..), Severity (..), WithLogger,
                      logDebug, logInfo, parseLoggerConfig, removeAllHandlers,
-                     setupLogging)
+                     setupLogging, usingLoggerName)
 
 #ifdef linux_HOST_OS
 import qualified Pos.Util.Wlog as Logger
@@ -113,7 +113,7 @@ allocateNodeResources
     -> TxpGlobalSettings
     -> InitMode ()
     -> IO (NodeResources ext)
-allocateNodeResources genesisConfig np@NodeParams {..} sscnp txpSettings initDB = do
+allocateNodeResources genesisConfig np@NodeParams {..} sscnp txpSettings initDB = usingLoggerName "resource" $ do
     logInfo "Allocating node resources..."
     npDbPath <- case npDbPathM of
         Nothing -> do
@@ -135,15 +135,15 @@ allocateNodeResources genesisConfig np@NodeParams {..} sscnp txpSettings initDB 
             futureSlottingContext
             futureLrcContext
     logDebug "Opened DB, created some futures, going to run InitMode"
-    runInitMode initModeContext $ do
+    liftIO $ runInitMode {-"resource_init"-} initModeContext $ do
         initDB
-        logDebug "Initialized DB"
+        logDebug' "Initialized DB"
 
         consAsync <- Async.async $ consolidateWorker genesisConfig
-        logDebug "Initialized block/epoch consolidation"
+        logDebug' "Initialized block/epoch consolidation"
 
         nrEkgStore <- liftIO $ Metrics.newStore
-        logDebug "Created EKG store"
+        logDebug' "Created EKG store"
 
         txpVar <- mkTxpLocalData -- doesn't use slotting or LRC
         let ancd =
@@ -158,11 +158,11 @@ allocateNodeResources genesisConfig np@NodeParams {..} sscnp txpSettings initDB 
         ctx@NodeContext {..} <-
             allocateNodeContext genesisConfig ancd txpSettings nrEkgStore
         putLrcContext ncLrcContext
-        logDebug "Filled LRC Context future"
+        logDebug' "Filled LRC Context future"
         dlgVar <- mkDelegationVar
-        logDebug "Created DLG var"
-        sscState <- mkSscState $ configEpochSlots genesisConfig
-        logDebug "Created SSC var"
+        logDebug' "Created DLG var"
+        sscState <- usingLoggerName "resource" $ mkSscState $ configEpochSlots genesisConfig
+        logDebug' "Created SSC var"
         jsonLogHandle <-
             case npJLFile of
                 Nothing -> pure Nothing
@@ -174,9 +174,9 @@ allocateNodeResources genesisConfig np@NodeParams {..} sscnp txpSettings initDB 
             (pure JsonLogDisabled)
             jsonLogConfigFromHandle
             jsonLogHandle
-        logDebug "JSON configuration initialized"
+        logDebug' "JSON configuration initialized"
 
-        logDebug "Finished allocating node resources!"
+        logDebug' "Finished allocating node resources!"
         return NodeResources
             { nrContext = ctx
             , nrDBs = db
@@ -188,6 +188,8 @@ allocateNodeResources genesisConfig np@NodeParams {..} sscnp txpSettings initDB 
             , nrFInjects = npFInjects
             , ..
             }
+  where
+    logDebug' msg = usingLoggerName "allocateNodeResources" $ logDebug msg
 
 -- | Release all resources used by node. They must be released eventually.
 releaseNodeResources ::
@@ -220,14 +222,14 @@ bracketNodeResources :: forall ext a.
     -> IO a
 bracketNodeResources genesisConfig np sp txp initDB action = do
     let msg = "`NodeResources'"
-    bracketWithLogging msg
-            (allocateNodeResources genesisConfig np sp txp initDB)
-            releaseNodeResources $ \nodeRes ->do
-        -- Notify systemd we are fully operative
-        -- FIXME this is not the place to notify.
-        -- The network transport is not up yet.
-        notifyReady
-        action nodeRes
+    usingLoggerName "node_resource" $ bracketWithLogging msg
+            (liftIO (allocateNodeResources genesisConfig np sp txp initDB))
+            (liftIO . releaseNodeResources) $ \nodeRes -> do
+                -- Notify systemd we are fully operative
+                -- FIXME this is not the place to notify.
+                -- The network transport is not up yet.
+                notifyReady
+                liftIO $ action nodeRes
 
 ----------------------------------------------------------------------------
 -- Logging
@@ -288,53 +290,53 @@ allocateNodeContext genesisConfig ancd txpSettings ekgStore = do
                                 , ancdEkgStore = store
                                 , ancdTxpMemState = TxpLocalData {..}
                                 } = ancd
-    logInfo "Allocating node context..."
+    logInfo' "Allocating node context..."
     ncLoggerConfig <- getRealLoggerConfig $ bpLoggingParams npBaseParams
-    logDebug "Got logger config"
+    logDebug' "Got logger config"
     ncStateLock <- newStateLock =<< GS.getTip
-    logDebug "Created a StateLock"
+    logDebug' "Created a StateLock"
     ncStateLockMetrics <- liftIO $ recordTxpMetrics store txpMemPool
-    logDebug "Created StateLock metrics"
+    logDebug' "Created StateLock metrics"
     lcLrcSync <- mkLrcSyncData >>= newTVarIO
-    logDebug "Created LRC sync"
+    logDebug' "Created LRC sync"
     ncSlottingVar <- (configStartTime genesisConfig,) <$> mkSlottingVar
-    logDebug "Created slotting variable"
+    logDebug' "Created slotting variable"
     ncSlottingContext <- mkSimpleSlottingStateVar epochSlots
-    logDebug "Created slotting context"
+    logDebug' "Created slotting context"
     putSlotting ncSlottingVar ncSlottingContext
-    logDebug "Filled slotting future"
+    logDebug' "Filled slotting future"
     ncUserPublic <- newTVarIO $ npUserPublic
-    logDebug "Created UserPublic variable"
+    logDebug' "Created UserPublic variable"
     ncUserSecret <- newTVarIO $ npUserSecret
-    logDebug "Created UserSecret variable"
+    logDebug' "Created UserSecret variable"
     ncBlockRetrievalQueue <- liftIO $ newTBQueueIO blockRetrievalQueueSize
     ncRecoveryHeader <- liftIO newEmptyTMVarIO
-    logDebug "Created block retrieval queue, recovery and progress headers"
+    logDebug' "Created block retrieval queue, recovery and progress headers"
     ncShutdownFlag <- newTVarIO False
     ncStartTime <- StartTime <$> liftIO Time.getCurrentTime
     ncLastKnownHeader <- newTVarIO Nothing
-    logDebug "Created last known header and shutdown flag variables"
+    logDebug' "Created last known header and shutdown flag variables"
     ncUpdateContext <- mkUpdateContext epochSlots
-    logDebug "Created context for update"
+    logDebug' "Created context for update"
     ncSscContext <- createSscContext sscnp
-    logDebug "Created context for ssc"
+    logDebug' "Created context for ssc"
     ncSlogContext <- mkSlogContext (configBlkSecurityParam genesisConfig) store
-    logDebug "Created context for slog"
+    logDebug' "Created context for slog"
     -- TODO synchronize the NodeContext peers var with whatever system
     -- populates it.
     peersVar <- newTVarIO mempty
-    logDebug "Created peersVar"
+    logDebug' "Created peersVar"
     mm <- initializeMisbehaviorMetrics ekgStore
 
-    logDebug ("Dequeue policy to core:  " <> (show ((ncDequeuePolicy networkConfig) NodeCore)))
-        `catch` \(ErrorCall msg) -> logDebug (toText msg)
-    logDebug ("Dequeue policy to relay: " <> (show ((ncDequeuePolicy networkConfig) NodeRelay)))
-        `catch` \(ErrorCall msg) -> logDebug (toText msg)
-    logDebug ("Dequeue policy to edge: " <> (show ((ncDequeuePolicy networkConfig) NodeEdge)))
-        `catch` \(ErrorCall msg) -> logDebug (toText msg)
+    logDebug' ("Dequeue policy to core:  " <> (show ((ncDequeuePolicy networkConfig) NodeCore)))
+        `catch` \(ErrorCall msg) -> logDebug' (toText msg)
+    logDebug' ("Dequeue policy to relay: " <> (show ((ncDequeuePolicy networkConfig) NodeRelay)))
+        `catch` \(ErrorCall msg) -> logDebug' (toText msg)
+    logDebug' ("Dequeue policy to edge: " <> (show ((ncDequeuePolicy networkConfig) NodeEdge)))
+        `catch` \(ErrorCall msg) -> logDebug' (toText msg)
 
 
-    logDebug "Finished allocating node context!"
+    logDebug' "Finished allocating node context!"
     let ctx =
             NodeContext
             { ncConnectedPeers = ConnectedPeers peersVar
@@ -347,6 +349,9 @@ allocateNodeContext genesisConfig ancd txpSettings ekgStore = do
             , ..
             }
     return ctx
+  where
+    logInfo'  msg = usingLoggerName "allocateNodeContext" $ logInfo  msg
+    logDebug' msg = usingLoggerName "allocateNodeContext" $ logDebug msg
 
 releaseNodeContext :: forall m . MonadIO m => NodeContext -> m ()
 releaseNodeContext _ = return ()

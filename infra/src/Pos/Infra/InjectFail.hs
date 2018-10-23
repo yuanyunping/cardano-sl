@@ -27,7 +27,7 @@ import qualified Data.Text as T
 import           Options.Applicative
 
 import           Pos.Util.Wlog (CanLog, HasLoggerName, logError, logWarning,
-                     modifyLoggerName)
+                     modifyLoggerName, usingLoggerName)
 
 data FInject
   = FInjIgnoreAPI                     -- ^ Return a hard-coded string for all registered Wallet API endpoints
@@ -72,10 +72,10 @@ data FInjects m     = FInjects
     }
 
 -- | Make a stateful fault injection configuration object.
-mkFInjects :: (CanLog m, HasCallStack, HasLoggerName m, MonadIO m) => FInjectsSpec -> m (FInjects m)
+mkFInjects :: (CanLog m, HasCallStack, MonadIO m) => FInjectsSpec -> m (FInjects m)
 mkFInjects mfs = do
   handle@(FInjectsHandle h) <- FInjectsHandle <$> (sequence $ newIORef <$> mfs)
-  when (isJust h) $ do
+  when (isJust h) $ usingLoggerName "fileInject" $ do
     logWarning "***"
     logWarning "*** FAULT INJECTION MACHINERY ACTIVE, ALL WARRANTIES VOID"
     logWarning "***"
@@ -103,12 +103,12 @@ logFInject :: (CanLog m, HasCallStack, HasLoggerName m)
 logFInject = modifyLoggerName (const "InjectFail") .
   logError . T.pack . (<> prettyCallStack callStack) . ("injecting fault: "<>) . show
 
-mkTestLogFInject :: (CanLog m, HasCallStack, HasLoggerName m, MonadIO m)
+mkTestLogFInject :: (CanLog m, HasCallStack, MonadIO m)
                  => FInjectsHandle -> FInject -> m Bool
 mkTestLogFInject fis fi = do
   injecting <- testFInject fis fi
   when injecting $
-    logFInject fi
+    usingLoggerName "testLog" $ logFInject fi
   pure injecting
 
 mkListFInjects :: forall m. (MonadIO m)

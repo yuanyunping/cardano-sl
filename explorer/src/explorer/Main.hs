@@ -35,7 +35,7 @@ import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations,
 import           Pos.Launcher.Configuration (AssetLockPath (..))
 import           Pos.Util (logException)
 import           Pos.Util.CompileInfo (HasCompileInfo, withCompileInfo)
-import           Pos.Util.Wlog (LoggerName, logInfo)
+import           Pos.Util.Wlog (LoggerName, logInfo, usingLoggerName)
 import           Pos.Worker.Update (updateTriggerWorker)
 
 loggerName :: LoggerName
@@ -50,14 +50,14 @@ main = do
     args <- getExplorerNodeOptions
     let loggingParams = CLI.loggingParams loggerName (enaCommonNodeArgs args)
     loggerBracket "explorer" loggingParams . logException "node" $ do
-        logInfo "[Attention] Software is built with explorer part"
+        usingLoggerName loggerName $ logInfo "[Attention] Software is built with explorer part"
         action args
 
 action :: ExplorerNodeArgs -> IO ()
 action (ExplorerNodeArgs (cArgs@CommonNodeArgs{..}) ExplorerArgs{..}) =
     withConfigurations blPath cnaDumpGenesisDataPath cnaDumpConfiguration conf $ \genesisConfig _ txpConfig _ntpConfig ->
     withCompileInfo $ do
-        logInfo $ "Explorer is enabled!"
+        usingLoggerName loggerName $ logInfo $ "Explorer is enabled!"
         (currentParams, Just sscParams) <- getNodeParams
             loggerName
             cArgs

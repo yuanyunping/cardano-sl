@@ -30,7 +30,7 @@ import           Pos.Launcher.Param (BaseParams (..), LoggingParams (..),
 import           Pos.Util.UserPublic (peekUserPublic)
 import           Pos.Util.UserSecret (peekUserSecret, usVss)
 import           Pos.Util.Util (eitherToThrow)
-import           Pos.Util.Wlog (LoggerName, WithLogger)
+import           Pos.Util.Wlog (CanLog, LoggerName, usingLoggerName)
 
 loggingParams :: LoggerName -> CommonNodeArgs -> LoggingParams
 loggingParams defaultName CommonNodeArgs{..} =
@@ -61,7 +61,7 @@ getKeyfilePath CommonNodeArgs {..}
 
 getNodeParams ::
        ( MonadIO m
-       , WithLogger m
+       , CanLog m
        , MonadCatch m
        )
     => LoggerName
@@ -69,7 +69,7 @@ getNodeParams ::
     -> NodeArgs
     -> Maybe GeneratedSecrets
     -> m (NodeParams, Maybe SscParams)
-getNodeParams defaultLoggerName cArgs@CommonNodeArgs{..} NodeArgs{..} mGeneratedSecrets = do
+getNodeParams defaultLoggerName cArgs@CommonNodeArgs{..} NodeArgs{..} mGeneratedSecrets = usingLoggerName defaultLoggerName $ do
     (primarySK, userSecret) <- prepareUserSecret cArgs mGeneratedSecrets
         =<< peekUserSecret (getKeyfilePath cArgs)
     userPublic <- peekUserPublic publicKeyfilePath

@@ -21,6 +21,7 @@ module Pos.Core.Reporting.Methods
 import           Universum
 
 import           Pos.ReportServer.Report (ReportType (..))
+import           Pos.Util.Wlog (LoggerNameBox)
 
 
 -- | Encapsulates the sending of a report, with potential for side-effects.
@@ -44,3 +45,6 @@ reportInfo = report . RInfo
 -- node, e. g. an assertion failed.
 reportError :: MonadReporting m => Text -> m ()
 reportError = report . RError
+
+instance (Monad m, MonadReporting m) => MonadReporting (LoggerNameBox m) where
+    report = lift . report

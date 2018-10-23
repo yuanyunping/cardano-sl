@@ -8,7 +8,7 @@ In summary: all "conversation" and relaying is done by the diffusion layer
 only. This way application latency does not inflate network latency. Input to
 the application layer will come from the diffusion layer rather than from a
 set of network listeners. Output to the network will go via the diffusion
-layer, and may not offer any feedback on success or failure. 
+layer, and may not offer any feedback on success or failure.
 
 A rough sketch of the interface:
 
@@ -424,7 +424,7 @@ withLogicLayerFullNode expectDiffusionLayer =
     expectDiffusionLayer $ \diffusionLayer -> do
       -- Existing code. Uses the DBs in initModeContext to discharge the
       -- particular concrete MonadRealDB stack.
-      let runLogicLayer = runInitMode initModeContext ...
+      let runLogicLayer = runInitMode loggerName initModeContext ...
       ...
       -- getBlock and runLogicLayer are in scope
       pure LogicLayer {..}

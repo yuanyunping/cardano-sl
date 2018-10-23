@@ -53,7 +53,7 @@ import           Pos.Core.Slotting (Timestamp (..))
 import           Pos.Crypto (RequiresNetworkMagic (..))
 import           Pos.Util.AssertMode (inAssertMode)
 import           Pos.Util.Config (parseYamlConfig)
-import           Pos.Util.Wlog (WithLogger, logInfo)
+import           Pos.Util.Wlog (CanLog, WithLogger, logInfo, usingLoggerName)
 
 import           Pos.Chain.Block
 import           Pos.Chain.Delegation
@@ -190,7 +190,7 @@ instance Default ConfigurationOptions where
 -- | Parse some big yaml file to 'MultiConfiguration' and then use the
 -- configuration at a given key.
 withConfigurations
-    :: (WithLogger m, MonadThrow m, MonadIO m)
+    :: (CanLog m, MonadThrow m, MonadIO m)
     => Maybe AssetLockPath
     -> Maybe FilePath
     -> Bool
@@ -198,7 +198,7 @@ withConfigurations
     -> (HasConfigurations => Genesis.Config -> WalletConfiguration -> TxpConfiguration -> NtpConfiguration -> m r)
     -> m r
 withConfigurations mAssetLockPath dumpGenesisPath dumpConfig cfo act = do
-    logInfo ("using configurations: " <> show cfo)
+    usingLoggerName "launcher" $ logInfo ("using configurations: " <> show cfo)
     cfg <- parseYamlConfig (cfoFilePath cfo) (cfoKey cfo)
     assetLock <- case mAssetLockPath of
         Nothing -> pure mempty
@@ -216,7 +216,7 @@ withConfigurations mAssetLockPath dumpGenesisPath dumpConfig cfo act = do
         withBlockConfiguration (ccBlock cfg) $
         withNodeConfiguration (ccNode cfg) $ do
             let txpConfig = addAssetLock assetLock $ ccTxp cfg
-            printInfoOnStart
+            usingLoggerName "launcher" $ printInfoOnStart
                 dumpGenesisPath
                 dumpConfig
                 (configGenesisData genesisConfig)

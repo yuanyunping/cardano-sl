@@ -32,7 +32,7 @@ import           Pos.Launcher.Runner (runRealMode)
 import           Pos.Launcher.Scenario (runNode)
 import           Pos.Util.CompileInfo (HasCompileInfo)
 import           Pos.Util.Util (logException)
-import           Pos.Util.Wlog (logInfo)
+import           Pos.Util.Wlog (logInfo, usingLoggerName)
 import           Pos.Worker.Update (updateTriggerWorker)
 import           Pos.WorkMode (EmptyMempoolExt)
 
@@ -64,7 +64,7 @@ launchNode nArgs cArgs lArgs action = do
             confOpts
 
     withLogger' $ withConfigurations' $ \genesisConfig walletConfig txpConfig ntpConfig -> do
-        (nodeParams, Just sscParams) <- getNodeParams
+        (nodeParams, Just sscParams) <- usingLoggerName "launching_node" $ getNodeParams
             (lpDefaultName lArgs)
             cArgs
             nArgs
@@ -101,7 +101,7 @@ actionWithCoreNode
 actionWithCoreNode genesisConfig _ txpConfig _ _ _ nodeRes = do
     let plugins = [ ("update trigger", updateTriggerWorker) ]
 
-    logInfo "Wallet is disabled, because software is built w/o it"
+    usingLoggerName "action_with_core" $ logInfo "Wallet is disabled, because software is built w/o it"
 
     runRealMode
         genesisConfig
