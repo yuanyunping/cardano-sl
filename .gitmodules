@@ -1,0 +1,3 @@
+[submodule "wallet-new"]
+	path = wallet-new
+	url = https://github.com/rvl/cardano-sl-wallet.git
