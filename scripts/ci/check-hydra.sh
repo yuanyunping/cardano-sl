@@ -1,7 +1,7 @@
 #!/usr/bin/env nix-shell
 #!nix-shell -p jq -i bash
 
-nix-build https://github.com/nixos/nixpkgs/archive/4fb198892d298452023ab176e7067da58d30772e.tar.gz -A hydra
+nix-build https://github.com/nixos/nixpkgs/archive/c162a0af643639db0e3114e2b3a38c696f819773.tar.gz -A hydra
 echo '~~~ Evaluating release.nix'
 command time --format '%e' -o eval-time.txt ./result/bin/hydra-eval-jobs -I . release.nix > eval.json
 EVAL_EXIT_CODE="$?"
