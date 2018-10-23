@@ -21,11 +21,13 @@ import           System.FilePath ((</>))
 import qualified Codec.Archive.Tar as Tar
 import qualified Codec.Compression.GZip as GZip
 
-import           Pos.Util.Wlog (logError, logInfo)
+import           Pos.Util.Wlog (LoggerName, logError, logInfo, usingLoggerName)
 
 import           Cardano.Wallet.Kernel (DatabaseMode (..), DatabaseOptions (..))
 import qualified Cardano.Wallet.Kernel.Mode as Kernel
 
+loggerName :: LoggerName
+loggerName = "acid-state"
 
 -- | Creates a new acid-state @checkpoint@ every 'Minute' minutes, also
 -- deleting old ones expect for the most recent one.
@@ -42,13 +44,13 @@ createAndArchiveCheckpoints dbRef delay dbMode =
   where
     go :: FilePath -> Kernel.WalletMode ()
     go dbPath = do
-        logInfo "createAndArchiveCheckpoints is starting..."
+        usingLoggerName loggerName $ logInfo "createAndArchiveCheckpoints is starting..."
 
         res <- try $ do
             liftIO (createCheckpoint dbRef >> createArchive dbRef)
             pruneAndCompress 3 dbPath
         case res of
-             Left (err :: SomeException) -> logError (show err)
+             Left (err :: SomeException) -> usingLoggerName loggerName $ logError (show err)
              Right ()                    -> return ()
 
         --  Wait for the next compaction cycle.
@@ -78,7 +80,7 @@ pruneAndCompress n dbPath = liftIO $ do
 
     -- Prune the old archives (including tarballs, if necessary).
     mapM_ (removeFile . fullRelPath) toPrune
-    logInfo ("pruneAndCompress pruned " <> show (length toPrune) <> " old archives.")
+    usingLoggerName loggerName $ logInfo ("pruneAndCompress pruned " <> show (length toPrune) <> " old archives.")
 
     now <- getCurrentTime
     let tarName = "archive_"
@@ -91,7 +93,7 @@ pruneAndCompress n dbPath = liftIO $ do
     B.writeFile (archiveDir </> tarName) . GZip.compress
                                          . Tar.write =<< Tar.pack archiveDir toCompress
 
-    logInfo ("pruneAndCompress compressed " <> show (length toCompress) <> " archives.")
+    usingLoggerName loggerName $ logInfo ("pruneAndCompress compressed " <> show (length toCompress) <> " archives.")
 
     -- Remove the archived files.
     mapM_ (removeFile . fullRelPath) toCompress

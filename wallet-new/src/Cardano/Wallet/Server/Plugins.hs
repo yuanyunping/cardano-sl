@@ -109,7 +109,7 @@ apiServer protocolMagic (NewWalletBackendParams WalletBackendParams{..}) (passiv
 
     getApplication :: ActiveWalletLayer IO -> Kernel.WalletMode Application
     getApplication active = do
-        logInfo "New wallet API has STARTED!"
+        usingLoggerName "wallet-server" $ logInfo "New wallet API has STARTED!"
         return
             $ withMiddlewares middlewares
             $ Servant.serve API.newWalletAPI
@@ -166,19 +166,19 @@ acidStateSnapshots :: AcidState db
 acidStateSnapshots dbRef params dbMode = const worker
   where
     worker = do
-      let opts = getWalletDbOptions params
-      modifyLoggerName (const "acid-state-checkpoint-plugin") $
-          createAndArchiveCheckpoints
-              dbRef
-              (walletAcidInterval opts)
-              dbMode
+        let opts = getWalletDbOptions params
+    --   usingLoggerName "acid-state-checkpoint-plugin" $
+        createAndArchiveCheckpoints
+            dbRef
+            (walletAcidInterval opts)
+            dbMode
 
 -- | A @Plugin@ to store updates proposal received from the blockchain
 updateWatcher :: Plugin Kernel.WalletMode
 updateWatcher = const $ do
-    modifyLoggerName (const "update-watcher-plugin") $ do
-        w <- Kernel.getWallet
+    usingLoggerName "update-watcher-plugin" $ do
+        w <- lift $ Kernel.getWallet
         forever $ liftIO $ do
             newUpdate <- WalletLayer.waitForUpdate w
-            logInfo "A new update was found!"
+            usingLoggerName "update-watcher-plugin" $ logInfo "A new update was found!"
             WalletLayer.addUpdate w . cpsSoftwareVersion $ newUpdate

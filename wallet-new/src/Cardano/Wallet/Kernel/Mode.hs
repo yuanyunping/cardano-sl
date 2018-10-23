@@ -31,6 +31,7 @@ import           Pos.Infra.Slotting
 import           Pos.Infra.Util.JsonLog.Events
 import           Pos.Launcher
 import           Pos.Util
+import           Pos.Util.Wlog (LoggerNameBox, usingLoggerName)
 import           Pos.WorkMode
 
 import           Cardano.Wallet.WalletLayer (PassiveWalletLayer, applyBlocks,
@@ -187,11 +188,13 @@ instance MonadGState WalletMode where
   gsAdoptedBVData = gsAdoptedBVDataDefault
 
 instance {-# OVERLAPPING #-} CanJsonLog WalletMode where
-  jsonLog = jsonLogDefault
+  jsonLog a = usingLoggerName "wallet-new" $ jsonLogDefault a
 
 instance MonadTxpLocal WalletMode where
-  txpNormalize = txNormalize
-  txpProcessTx = txProcessTransaction
+  txpNormalize a b = usingLoggerName "wallet-new" $ txNormalize a b
+  txpProcessTx a b c = usingLoggerName "wallet-new" $ txProcessTransaction a b c
 
 instance HasNodeContext WalletContext where
     nodeContext = wcRealModeContext_L . lensOf @NodeContext
+
+type instance MempoolExt (LoggerNameBox WalletMode) = ()
