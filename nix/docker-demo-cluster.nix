@@ -22,7 +22,7 @@ let
     };
     relayBindAddr = "0.0.0.0";
     walletBindAddr = "0.0.0.0";
-    disableClientAuth = true;
+    disableClientAuth = null;  # null means defer to $DEMO_NO_CLIENT_AUTH
   };
 
   startScript = writeScriptBin "start-demo-cluster" ''
@@ -50,9 +50,7 @@ let
   tcpPorts = ports: listToAttrs (map (port: nameValuePair "${toString port}/tcp" {}) ports);
   portRange = start: count: range start (start + count - 1);
 
-in
-
-  dockerTools.buildImage {
+  demoClusterImage = dockerTools.buildImage {
     name = repoName;
     tag = "${version}-demo-cluster";
     fromImage = baseImage;
@@ -74,4 +72,11 @@ in
         ++ portRange 3100 demoCluster'.numRelayNodes
       );
     };
+  };
+
+in
+
+  demoClusterImage // {
+    # pass through demoCluster attribute for debugging
+    script = demoCluster';
   }

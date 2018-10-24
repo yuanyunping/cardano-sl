@@ -113,7 +113,7 @@ in writeScript "demo-cluster" ''
 
 
   # Remove previous state
-  rm -rf ${stateDir}
+  rm -rf ${stateDir} || true
   mkdir -p ${stateDir}/logs
 
   ${if launchGenesis then ''
@@ -194,9 +194,6 @@ in writeScript "demo-cluster" ''
   ${ifKeepAlive ''
     echo "The demo cluster has started and will stop when you exit with Ctrl-C."
     echo "Log files are in ${stateDir}/logs."
-    ${ifWallet ''
-    echo "Use ${stateDir}/curl to make requests to the wallet."
-    ''}
     sleep infinity
   ''}
 '' // {
