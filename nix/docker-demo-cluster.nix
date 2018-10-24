@@ -32,10 +32,9 @@ let
     export LOCALE_ARCHIVE="${glibcLocales}/lib/locale/locale-archive"
 
     if [ ! -d ${stateDir} ]; then
-      echo '${stateDir} volume not mounted'
-      echo 'You need to create one with `docker volume create`,'
+      echo 'warning: ${stateDir} volume not mounted'
+      echo 'Recommended to create one with `docker volume create`,'
       echo 'and pass the correct -v flag to `docker run`'
-      exit 1
     fi
 
     exec ${demoCluster'} "$@"
