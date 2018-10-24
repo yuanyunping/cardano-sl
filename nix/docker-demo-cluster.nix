@@ -22,6 +22,7 @@ let
     };
     relayBindAddr = "0.0.0.0";
     walletBindAddr = "0.0.0.0";
+    walletDocBindAddr = "0.0.0.0";
     disableClientAuth = null;  # null means defer to $DEMO_NO_CLIENT_AUTH
   };
 

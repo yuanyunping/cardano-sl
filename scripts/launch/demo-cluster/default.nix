@@ -25,6 +25,7 @@ with import ../../../lib.nix;
 , useLegacyDataLayer ? false
 , relayBindAddr ? "127.0.0.1"
 , walletBindAddr ? "127.0.0.1"
+, walletDocBindAddr ? "127.0.0.1"
 
 # Additional environment variables to set before running the demo cluster.
 , extraEnv ? {}
@@ -36,11 +37,13 @@ let
   demoClusterDeps = [ jq coreutils curl gnused openssl ];
   allDeps =  demoClusterDeps ++ (optionals (!useStackBinaries ) cardanoDeps);
   walletPort = "8090";
+  walletDocPort = "8091";
   walletConfig = {
     inherit stateDir disableClientAuth useLegacyDataLayer;
     topologyFile = walletTopologyFile;
     environment = "demo";
     walletListen = "${walletBindAddr}:${walletPort}";
+    walletDocListen = "${walletDocBindAddr}:${walletDocPort}";
   };
   walletEnvironment = if launchGenesis then {
     environment = "override";
