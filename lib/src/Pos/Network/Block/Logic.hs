@@ -32,7 +32,7 @@ import           Pos.Chain.Block (ApplyBlocksException, Block, BlockHeader,
 import           Pos.Chain.Genesis as Genesis (Config (..), configEpochSlots)
 import           Pos.Chain.Genesis (GenesisData (..))
 import           Pos.Chain.Txp (TxpConfiguration)
-import           Pos.Chain.Update (isObftEraBVD)
+import           Pos.Chain.Update (bvdUnlockStakeEpoch, isObftEraBVD)
 import           Pos.Core (SlotCount, isMoreDifficult)
 import           Pos.Core.Chrono (NE, NewestFirst (..), OldestFirst (..),
                      _NewestFirst, _OldestFirst)
@@ -145,6 +145,8 @@ handleUnsolicitedHeader genesisConfig header nodeId = do
          %build) header
     logDebug $ sformat
         ("isObftEra: "%build%".") (isObftEraBVD (gdBlockVersionData (Genesis.configGenesisData genesisConfig)))
+    logDebug $ sformat
+        ("bvdUnlockStakeEpoch: "%build%".") (bvdUnlockStakeEpoch (gdBlockVersionData (Genesis.configGenesisData genesisConfig)))
     classificationRes <- classifyNewHeader genesisConfig header
     -- TODO: should we set 'To' hash to hash of header or leave it unlimited?
     case classificationRes of
