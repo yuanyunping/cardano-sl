@@ -1,6 +1,6 @@
 steps:
   - label: 'Windows'
-    command: 'echo "hello world"'
+    command: 'Powershell.exe -executionpolicy remotesigned -File .\windows.ps1'
     agents:
       system: x86_64-win2016
 
