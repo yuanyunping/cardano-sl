@@ -15069,7 +15069,7 @@ devnet: &devnet
         <<: *mainnet_base_spec
         blockVersionData:
           <<: *mainnet_base_blockVersionData
-          slotDuration:      20000 # set to desired value
+          slotDuration:      10000 # set to desired value
           maxHeaderSize:      2000
           maxProposalSize:   70000 # 70KB
           maxTxSize:         65536 # 64KiB
