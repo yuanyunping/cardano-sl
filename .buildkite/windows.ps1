@@ -24,7 +24,7 @@ $env:WORK_DIR="d:\w"
 #curl.exe http://www.stackage.org/stack/windows-x86_64 -o d:\Downloads\stack.zip -L
 #7z -oD:\stack x D:\Downloads\stack.zip
 
-$env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack"
+$env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack;$Env:Programfiles\7-Zip"
 
 # Install liblzma/xz
 #curl -L https://tukaani.org/xz/xz-5.2.3-windows.zip -o xz-5.2.3-windows.zip
@@ -56,11 +56,13 @@ stack.exe --verbosity warn setup --no-reinstall
 # Install happy separately: https://github.com/commercialhaskell/stack/issues/3151#issuecomment-310642487. Also install cpphs because it's a build-tool and Stack can't figure out by itself that it should be installed
 stack.exe --verbosity warn install happy cpphs -j 2 --no-terminal --local-bin-path $env:SYSTEMROOT\system32 --extra-include-dirs="D:\OpenSSL-Win64-v102\include" --extra-lib-dirs="D:\OpenSSL-Win64-v102" --extra-include-dirs="D:\xz_extracted\include" --extra-lib-dirs="D:\xz_extracted\bin_x86-64" --extra-include-dirs="$env:WORK_DIR\rocksdb\include" --extra-lib-dirs="$env:WORK_DIR"
 # TODO: CSL-1133. To be reenabled.
- stack.exe test --coverage
- stack.exe hpc report cardano-sl cardano-sl-txp cardano-sl-core cardano-sl-db cardano-sl-update cardano-sl-infra cardano-sl-lrc cardano-sl-ssc
-#try transient failures due to https://github.com/haskell/cabal/issues/4005
+# stack.exe test --coverage
+# stack.exe hpc report cardano-sl cardano-sl-txp cardano-sl-core cardano-sl-db cardano-sl-update cardano-sl-infra cardano-sl-lrc cardano-sl-ssc
+
 #We intentionally don't build auxx here, because this build is for installer.
-stack.exe --dump-logs install cardano-sl cardano-sl-tools cardano-sl-wallet cardano-sl-wallet-new -j 3 --no-terminal --local-bin-path $env:WORK_DIR --no-haddock-deps --flag cardano-sl-core:-asserts --flag cardano-sl-tools:for-installer --flag cardano-sl-wallet:for-installer --extra-include-dirs="D:\OpenSSL-Win64-v102\include" --extra-lib-dirs="D:\OpenSSL-Win64-v102" --extra-include-dirs="D:\xz_extracted\include" --extra-lib-dirs="D:\xz_extracted\bin_x86-64" --extra-include-dirs="%WORK_DIR%\rocksdb\include" --extra-lib-dirs="$env:WORK_DIR"
+stack.exe --dump-logs install cardano-sl cardano-sl-tools cardano-sl-wallet cardano-sl-wallet-new -j 3 --no-terminal --local-bin-path $env:WORK_DIR --no-haddock-deps --flag cardano-sl-core:-asserts --flag cardano-sl-tools:for-installer --flag cardano-sl-wallet:for-installer --extra-include-dirs="D:\OpenSSL-Win64-v102\include" --extra-lib-dirs="D:\OpenSSL-Win64-v102" --extra-include-dirs="D:\xz_extracted\include" --extra-lib-dirs="D:\xz_extracted\bin_x86-64" --extra-include-dirs="$env:WORK_DIR\rocksdb\include" --extra-lib-dirs="$env:WORK_DIR"
+
+
 #Cardano pieces, modulo the frontend
 mkdir daedalus
 ## log config is called `log-config-prod.yaml` just in case, it's the old name
@@ -71,5 +73,7 @@ copy cardano-launcher.exe daedalus\
 copy cardano-node.exe daedalus\
 copy cardano-x509-certificates.exe daedalus\
 cd daedalus
-#Echo %APPVEYOR_BUILD_VERSION% > build-id
-#Echo %APPVEYOR_REPO_COMMIT% > commit-id
+$env:BUILDKITE_BUILD_NUMBER | Out-File build-id
+$env:BUILDKITE_COMMIT | Out-File commit-id
+
+7z.exe a $env:BUILDKITE_COMMIT.zip *
