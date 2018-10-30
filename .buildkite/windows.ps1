@@ -58,14 +58,14 @@ stack.exe --verbosity warn install happy cpphs -j 2 --no-terminal --local-bin-pa
 #We intentionally don't build auxx here, because this build is for installer.
 stack.exe --dump-logs install cardano-sl cardano-sl-tools cardano-sl-wallet cardano-sl-wallet-new -j 3 --no-terminal --local-bin-path $env:WORK_DIR --no-haddock-deps --flag cardano-sl-core:-asserts --flag cardano-sl-tools:for-installer --flag cardano-sl-wallet:for-installer --extra-include-dirs="D:\OpenSSL-Win64-v102\include" --extra-lib-dirs="D:\OpenSSL-Win64-v102" --extra-include-dirs="D:\xz_extracted\include" --extra-lib-dirs="D:\xz_extracted\bin_x86-64" --extra-include-dirs="%WORK_DIR%\rocksdb\include" --extra-lib-dirs="$env:WORK_DIR"
 #Cardano pieces, modulo the frontend
-#mkdir daedalus
+mkdir daedalus
 ## log config is called `log-config-prod.yaml` just in case, it's the old name
-#copy log-configs\daedalus.yaml daedalus\log-config-prod.yaml
-#copy lib\configuration.yaml daedalus\
-#copy lib\*genesis*.json daedalus\
-#copy cardano-launcher.exe daedalus\
-#copy cardano-node.exe daedalus\
-#copy cardano-x509-certificates.exe daedalus\
-#cd daedalus
+copy log-configs\daedalus.yaml daedalus\log-config-prod.yaml
+copy lib\configuration.yaml daedalus\
+copy lib\*genesis*.json daedalus\
+copy cardano-launcher.exe daedalus\
+copy cardano-node.exe daedalus\
+copy cardano-x509-certificates.exe daedalus\
+cd daedalus
 #Echo %APPVEYOR_BUILD_VERSION% > build-id
 #Echo %APPVEYOR_REPO_COMMIT% > commit-id
