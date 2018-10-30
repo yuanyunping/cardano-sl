@@ -5,6 +5,9 @@ $env:STACK_ROOT="d:\s"
 $env:STACK_WORK= ".w"
 $env:WORK_DIR="d:\w"
 
+# Store the original checkout directory
+$env:CHECKOUT_PATH=(Get-Item -Path ".\").FullName
+
 #  Setup stuff (commented out)
 #mkdir d:\ghc
 #
@@ -32,7 +35,7 @@ $env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack;$Env:Programfiles\7-Zip"
 
 rd -r -fo $env:WORK_DIR
 mkdir $env:WORK_DIR
-copy-item $env:BUILDKITE_BUILD_CHECKOUT_PATH\* $env:WORK_DIR -force -recurse
+copy-item $env:CHECKOUT_PATH\* $env:WORK_DIR -force -recurse
 cd $env:WORK_DIR
 
 git.exe clone https://github.com/facebook/rocksdb.git --branch v4.13.5
