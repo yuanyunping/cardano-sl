@@ -57,7 +57,8 @@ import           Cardano.Wallet.Kernel.PrefilterTx (AddrWithId,
                      PrefilteredBlock, UtxoWithAddrId, WalletKey,
                      prefilterBlock, prefilterUtxo', toHdAddressId,
                      toPrefilteredUtxo)
-import           Cardano.Wallet.Kernel.Read (getWalletSnapshot)
+import           Cardano.Wallet.Kernel.Read (foreignPendingByAccount,
+                     getWalletSnapshot)
 import           Cardano.Wallet.Kernel.Types (RawResolvedBlock (..),
                      WalletId (..), fromRawResolvedBlock, rawResolvedBlock,
                      rawResolvedBlockInputs, rawResolvedContext, rawTimestamp)
@@ -166,11 +167,13 @@ mkPrefilter :: Kernel.PassiveWallet
             -> EncryptedSecretKey
             -> Blund
             -> IO (Map HD.HdAccountId PrefilteredBlock, [TxMeta])
-mkPrefilter pw wId esk blund = blundToResolvedBlock (pw ^. walletNode) blund <&> \case
-    Nothing -> (M.empty, [])
-    Just rb -> prefilterBlock nm rb [(wId,esk)]
-  where
-    nm = makeNetworkMagic (pw ^. walletProtocolMagic)
+mkPrefilter pw wId esk blund = do
+    let nm = makeNetworkMagic (pw ^. walletProtocolMagic)
+    foreignPendings <- foreignPendingByAccount <$> getWalletSnapshot pw
+    blundToResolvedBlock (pw ^. walletNode) blund <&> \case
+        Nothing -> (M.empty, [])
+        Just rb -> prefilterBlock nm foreignPendings rb [(wId,esk)]
+
 
 -- | Begin a restoration for a wallet that is already known. This is used
 -- to put an existing wallet back into a restoration state when something has

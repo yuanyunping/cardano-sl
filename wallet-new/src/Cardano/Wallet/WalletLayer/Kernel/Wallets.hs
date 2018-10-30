@@ -167,10 +167,11 @@ prefilter :: NetworkMagic
           -> WalletId
           -> Blund
           -> IO (Map HD.HdAccountId PrefilteredBlock, [TxMeta])
-prefilter nm esk wallet wId blund =
+prefilter nm esk wallet wId blund = do
+    foreignPendings <- Kernel.foreignPendingByAccount <$> Kernel.getWalletSnapshot wallet
     blundToResolvedBlock (wallet ^. Kernel.walletNode) blund <&> \case
         Nothing -> (Map.empty, [])
-        Just rb -> prefilterBlock nm rb [(wId,esk)]
+        Just rb -> prefilterBlock nm foreignPendings rb [(wId,esk)]
 
 -- | Updates the 'SpendingPassword' for this wallet.
 updateWallet :: MonadIO m
