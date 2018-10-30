@@ -30,13 +30,12 @@ $env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack"
 #curl -L https://tukaani.org/xz/xz-5.2.3-windows.zip -o xz-5.2.3-windows.zip
 #7z -oD:\xz_extracted x xz-5.2.3-windows.zip
 
-
-# Not needed????
 rd -r -fo $env:WORK_DIR
 mkdir $env:WORK_DIR
 # xcopy /q /s /e /r /k /i /v /h /y $env:BUILDKITE_BUILD_CHECKOUT_PATH $env:WORK_DIR
 copy-item $env:BUILDKITE_BUILD_CHECKOUT_PATH\* $env:WORK_DIR -force -recurse
 cd $env:WORK_DIR
+
 git.exe clone https://github.com/facebook/rocksdb.git --branch v4.13.5
 # curl.exe -L 'https://s3.eu-central-1.amazonaws.com/ci-static/serokell-rocksdb-haskell-325427fc709183c8fdf777ad5ea09f8d92bf8585.zip' -o D:\Downloads\rocksdb.zip
 7z x D:\Downloads\rocksdb.zip
