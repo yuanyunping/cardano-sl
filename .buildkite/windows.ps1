@@ -29,8 +29,8 @@ $env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack"
 #7z -oD:\xz_extracted x xz-5.2.3-windows.zip
 
 
-# Not needed????
 rd -r -fo d:\w
+xcopy /q /s /e /r /k /i /v /h /y "." "d:\w"
 cd d:\w
 git clean -fdx
 git clone https://github.com/facebook/rocksdb.git --branch v4.13.5
