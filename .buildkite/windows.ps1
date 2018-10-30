@@ -1,9 +1,9 @@
 Set-PSDebug -Trace 1
 
 # Avoid long paths on Windows
-$env:STACK_ROOT="d:\s"
-$env:STACK_WORK= ".w"
-$env:WORK_DIR="d:\w"
+$env:STACK_ROOT="D:\s"
+$env:STACK_WORK=".w"
+$env:WORK_DIR="D:\w"
 
 # Store the original checkout directory
 $env:CHECKOUT_PATH=(Get-Item -Path ".\").FullName
@@ -78,5 +78,6 @@ $env:BUILDKITE_BUILD_NUMBER | Out-File build-id
 $env:BUILDKITE_COMMIT | Out-File commit-id
 cd ..
 
-7z.exe a "$env:BUILDKITE_COMMIT".zip daedalus\*
-buildkite-agent artifact upload "$env:BUILDKITE_COMMIT".zip
+$daedaluszip = "$env:BUILDKITE_COMMIT.zip"
+7z.exe a $daedaluszip daedalus\*
+buildkite-agent artifact upload $daedaluszip
