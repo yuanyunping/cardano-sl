@@ -1,4 +1,6 @@
 Set-PSDebug -Trace 1
+
+# Avoid long paths on Windows
 $env:STACK_ROOT="d:\s"
 $env:STACK_WORK= ".w"
 $env:WORK_DIR="d:\w"
@@ -30,13 +32,14 @@ $env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack"
 
 
 # Not needed????
-rd -r -fo d:\w
-cd d:\w
-git clean -fdx
-git clone https://github.com/facebook/rocksdb.git --branch v4.13.5
-#curl.exe -L 'https://s3.eu-central-1.amazonaws.com/ci-static/serokell-rocksdb-haskell-325427fc709183c8fdf777ad5ea09f8d92bf8585.zip' -o D:\Downloads\rocksdb.zip
+rd -r -fo $env:WORK_DIR
+mkdir $env:WORK_DIR
+# xcopy /q /s /e /r /k /i /v /h /y $env:BUILDKITE_BUILD_CHECKOUT_PATH $env:WORK_DIR
+copy-item $env:BUILDKITE_BUILD_CHECKOUT_PATH\* $env:WORK_DIR -force -recurse
+cd $env:WORK_DIR
+git.exe clone https://github.com/facebook/rocksdb.git --branch v4.13.5
+# curl.exe -L 'https://s3.eu-central-1.amazonaws.com/ci-static/serokell-rocksdb-haskell-325427fc709183c8fdf777ad5ea09f8d92bf8585.zip' -o D:\Downloads\rocksdb.zip
 7z x D:\Downloads\rocksdb.zip
-# RocksDB needs installed into cardano directories
 
 # CSL-1509: After moving the 'cardano-sl' project itself into a separate folder ('lib/'), the 'cardano-text.exe' executable fails on AppVeyor CI.
 # After some investigation, it was discovered that this was because 'rocksdb.dll' has to be located in this folder as well, or else the test executable doesn't work.
@@ -44,11 +47,13 @@ copy rocksdb.dll node
 copy rocksdb.dll lib
 copy rocksdb.dll wallet
 copy rocksdb.dll wallet-new
+
+
 # Start doing stuff
 
 stack.exe config --system-ghc set system-ghc --global true
 stack.exe exec -- ghc-pkg recache
-stack.exe --verbosity warn setup --no-reinstall > nul
+stack.exe --verbosity warn setup --no-reinstall
 # Install happy separately: https://github.com/commercialhaskell/stack/issues/3151#issuecomment-310642487. Also install cpphs because it's a build-tool and Stack can't figure out by itself that it should be installed
 stack.exe --verbosity warn install happy cpphs -j 2 --no-terminal --local-bin-path $env:SYSTEMROOT\system32 --extra-include-dirs="D:\OpenSSL-Win64-v102\include" --extra-lib-dirs="D:\OpenSSL-Win64-v102" --extra-include-dirs="D:\xz_extracted\include" --extra-lib-dirs="D:\xz_extracted\bin_x86-64" --extra-include-dirs="$env:WORK_DIR\rocksdb\include" --extra-lib-dirs="$env:WORK_DIR"
 # TODO: CSL-1133. To be reenabled.
