@@ -1,5 +1,8 @@
 Set-PSDebug -Trace 1
-$env:WORK_DIR=(Get-Item -Path ".\").FullName
+$env:STACK_ROOT="d:\s"
+$env:STACK_WORK= ".w"
+$env:WORK_DIR="d:\w"
+
 #  Setup stuff (commented out)
 #mkdir d:\ghc
 #
@@ -27,6 +30,8 @@ $env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack"
 
 
 # Not needed????
+rd -r -fo d:\w
+cd d:\w
 git clean -fdx
 git clone https://github.com/facebook/rocksdb.git --branch v4.13.5
 #curl.exe -L 'https://s3.eu-central-1.amazonaws.com/ci-static/serokell-rocksdb-haskell-325427fc709183c8fdf777ad5ea09f8d92bf8585.zip' -o D:\Downloads\rocksdb.zip
@@ -41,39 +46,17 @@ copy rocksdb.dll wallet
 copy rocksdb.dll wallet-new
 # Start doing stuff
 
-stack config --system-ghc set system-ghc --global true
-stack exec -- ghc-pkg recache
-stack --verbosity warn setup --no-reinstall > nul
+stack.exe config --system-ghc set system-ghc --global true
+stack.exe exec -- ghc-pkg recache
+stack.exe --verbosity warn setup --no-reinstall > nul
 # Install happy separately: https://github.com/commercialhaskell/stack/issues/3151#issuecomment-310642487. Also install cpphs because it's a build-tool and Stack can't figure out by itself that it should be installed
-stack --verbosity warn install happy cpphs `
-  -j 2 `
-  --no-terminal `
-  --local-bin-path %SYSTEMROOT%\system32 `
-  --extra-include-dirs="D:\OpenSSL-Win64-v102\include" `
-  --extra-lib-dirs="D:\OpenSSL-Win64-v102" `
-  --extra-include-dirs="D:\xz_extracted\include" `
-  --extra-lib-dirs="D:\xz_extracted\bin_x86-64" `
-  --extra-include-dirs="%WORK_DIR%\rocksdb\include" `
-  --extra-lib-dirs="%WORK_DIR%"
+stack.exe --verbosity warn install happy cpphs -j 2 --no-terminal --local-bin-path $env:SYSTEMROOT\system32 --extra-include-dirs="D:\OpenSSL-Win64-v102\include" --extra-lib-dirs="D:\OpenSSL-Win64-v102" --extra-include-dirs="D:\xz_extracted\include" --extra-lib-dirs="D:\xz_extracted\bin_x86-64" --extra-include-dirs="$env:WORK_DIR\rocksdb\include" --extra-lib-dirs="$env:WORK_DIR"
 # TODO: CSL-1133. To be reenabled.
-#- stack test --coverage
-#- stack hpc report cardano-sl cardano-sl-txp cardano-sl-core cardano-sl-db cardano-sl-update cardano-sl-infra cardano-sl-lrc cardano-sl-ssc
+ stack.exe test --coverage
+ stack.exe hpc report cardano-sl cardano-sl-txp cardano-sl-core cardano-sl-db cardano-sl-update cardano-sl-infra cardano-sl-lrc cardano-sl-ssc
 #try transient failures due to https://github.com/haskell/cabal/issues/4005
 #We intentionally don't build auxx here, because this build is for installer.
-#scripts\ci\appveyor-retry call stack --dump-logs install cardano-sl cardano-sl-tools cardano-sl-wallet cardano-sl-wallet-new
-#  -j 3
-#  --no-terminal
-#  --local-bin-path %WORK_DIR%
-#  --no-haddock-deps
-#  --flag cardano-sl-core:-asserts
-#  --flag cardano-sl-tools:for-installer
-#  --flag cardano-sl-wallet:for-installer
-#  --extra-include-dirs="D:\OpenSSL-Win64-v102\include"
-#  --extra-lib-dirs="D:\OpenSSL-Win64-v102"
-#  --extra-include-dirs="D:\xz_extracted\include"
-#  --extra-lib-dirs="D:\xz_extracted\bin_x86-64"
-#  --extra-include-dirs="%WORK_DIR%\rocksdb\include"
-#  --extra-lib-dirs="%WORK_DIR%"
+stack.exe --dump-logs install cardano-sl cardano-sl-tools cardano-sl-wallet cardano-sl-wallet-new -j 3 --no-terminal --local-bin-path $env:WORK_DIR --no-haddock-deps --flag cardano-sl-core:-asserts --flag cardano-sl-tools:for-installer --flag cardano-sl-wallet:for-installer --extra-include-dirs="D:\OpenSSL-Win64-v102\include" --extra-lib-dirs="D:\OpenSSL-Win64-v102" --extra-include-dirs="D:\xz_extracted\include" --extra-lib-dirs="D:\xz_extracted\bin_x86-64" --extra-include-dirs="%WORK_DIR%\rocksdb\include" --extra-lib-dirs="$env:WORK_DIR"
 #Cardano pieces, modulo the frontend
 #mkdir daedalus
 ## log config is called `log-config-prod.yaml` just in case, it's the old name
