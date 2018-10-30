@@ -32,7 +32,6 @@ $env:PATH="$env:PATH;D:\ghc\ghc-8.2.2\bin;d:\stack;$Env:Programfiles\7-Zip"
 
 rd -r -fo $env:WORK_DIR
 mkdir $env:WORK_DIR
-# xcopy /q /s /e /r /k /i /v /h /y $env:BUILDKITE_BUILD_CHECKOUT_PATH $env:WORK_DIR
 copy-item $env:BUILDKITE_BUILD_CHECKOUT_PATH\* $env:WORK_DIR -force -recurse
 cd $env:WORK_DIR
 
@@ -46,7 +45,6 @@ copy rocksdb.dll node
 copy rocksdb.dll lib
 copy rocksdb.dll wallet
 copy rocksdb.dll wallet-new
-
 
 # Start doing stuff
 
@@ -75,5 +73,7 @@ copy cardano-x509-certificates.exe daedalus\
 cd daedalus
 $env:BUILDKITE_BUILD_NUMBER | Out-File build-id
 $env:BUILDKITE_COMMIT | Out-File commit-id
+cd ..
 
-7z.exe a $env:BUILDKITE_COMMIT.zip *
+7z.exe a "$env:BUILDKITE_COMMIT".zip daedalus\*
+buildkite-agent artifact upload "$env:BUILDKITE_COMMIT".zip
