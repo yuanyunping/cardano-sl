@@ -361,3 +361,7 @@ newPaymentError e = case e of
 
     (NewPaymentUnknownAccountId e') ->
         unknownHdAccount e'
+
+    -- TODO @intricate: Don't use `UnknownError`
+    ex@(NewPaymentAddressBadNetworkMagic _) ->
+        V1.UnknownError $ (sformat build ex)
