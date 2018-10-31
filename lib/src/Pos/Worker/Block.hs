@@ -53,7 +53,8 @@ import           Pos.DB.Block (calcChainQualityFixedTime, calcChainQualityM,
 import qualified Pos.DB.BlockIndex as DB
 import           Pos.DB.Delegation (getDlgTransPsk, getPskByIssuer)
 import qualified Pos.DB.Lrc as LrcDB (getLeadersForEpoch)
-import           Pos.DB.Update (getAdoptedBVData, getConsensusEra)
+import           Pos.DB.Update (getAdoptedBVData, getAdoptedBVFull,
+                     getConsensusEra)
 import           Pos.Infra.Diffusion.Types (Diffusion)
 import qualified Pos.Infra.Diffusion.Types as Diffusion
                      (Diffusion (announceBlockHeader))
@@ -148,6 +149,11 @@ blockCreator
 blockCreator genesisConfig txpConfig (slotId@SlotId {..}) diffusion = do
     era <- getConsensusEra
     logInfo $ sformat ("blockCreator: Consensus era is " % shown) era
+    (adoptedBV, adoptedBVD) <- getAdoptedBVFull
+    logInfo $ sformat ("blockCreator: Consensus era is "%shown%"\n\
+                       \blockVersion: "%build%"\n\
+                       \bvdUnlockStakeEpoch: "%build%".")
+                      era adoptedBV (bvdUnlockStakeEpoch adoptedBVD)
     -- First of all we create genesis block if necessary.
     mGenBlock <- createGenesisBlockAndApply genesisConfig txpConfig siEpoch
     whenJust mGenBlock $ \createdBlk -> do

@@ -36,8 +36,8 @@ import           Pos.Chain.Block (Block, Blund, HasSlogGState, SlogUndo (..),
                      mainBlockSlot, prevBlockL, verifyBlocks)
 import           Pos.Chain.Genesis as Genesis (Config (..), configEpochSlots,
                      configK)
-import           Pos.Chain.Update (BlockVersion (..), HasUpdateConfiguration,
-                     lastKnownBlockVersion)
+import           Pos.Chain.Update (BlockVersion (..), BlockVersionData (..),
+                     HasUpdateConfiguration, lastKnownBlockVersion)
 import           Pos.Core (BlockCount, FlatSlotId, ProtocolConstants,
                      difficultyL, epochIndexL, flattenSlotId, kEpochSlots,
                      pcBlkSecurityParam)
@@ -136,8 +136,11 @@ slogVerifyBlocks
     -> m (Either Text (OldestFirst NE SlogUndo))
 slogVerifyBlocks genesisConfig curSlot blocks = runExceptT $ do
     era <- getConsensusEra
-    logInfo $ sformat ("slogVerifyBlocks: Consensus era is " % shown) era
     (adoptedBV, adoptedBVD) <- lift getAdoptedBVFull
+    logInfo $ sformat ("slogVerifyBlocks: Consensus era is "%shown%"\n\
+                       \blockVersion: "%build%"\n\
+                       \bvdUnlockStakeEpoch: "%build%".")
+                      era adoptedBV (bvdUnlockStakeEpoch adoptedBVD)
     let dataMustBeKnown = mustDataBeKnown adoptedBV
     let headEpoch = blocks ^. _Wrapped . _neHead . epochIndexL
     leaders <- lift $
